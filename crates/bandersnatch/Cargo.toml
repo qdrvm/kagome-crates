@@ -1,0 +1,25 @@
+[package]
+name = "bandersnatch_vrfs_crust"
+version = "0.4.0"
+description = "Ring VRFs and thin VRF on bandersnatch"
+license = "Apache-2.0"
+edition = "2021"
+
+[dependencies]
+bandersnatch_vrfs = { git = "https://github.com/w3f/ring-vrf", rev = "4831a70", default-features = false, features = ["substrate-curves"], optional = true }
+serde = "1.0.193"
+codec = { package = "parity-scale-codec", version = "3.6.1", default-features = false, features = ["derive", "max-encoded-len"] }
+
+[features]
+default = ["std"]
+std = [
+    "bandersnatch_vrfs/std",
+    "codec/std",
+]
+
+[build-dependencies]
+build-helper = { path = "../build-helper" }
+
+[lib]
+name = "bandersnatch_vrfs_crust"
+crate-type = ["cdylib", "staticlib"]

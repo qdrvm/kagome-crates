@@ -1,0 +1,28 @@
+[package]
+name = "schnorrkel_crust"
+version = "0.2.0"
+authors = ["Bogdan Vaneev <warchantua@gmail.com>", "Vladimir Shcherba <abrehchs@gmail.com>", "Alexander Lednev <iceseer@gmail.com>"]
+edition = "2021"
+
+[lib]
+name = "schnorrkel_crust"
+# probably we need to add dylib/lib/dll for mac/linux/windows
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+schnorrkel = { version="0.9.1", features = ["preaudit_deprecated"] }
+ed25519-dalek = { version="1.0.0" }
+rand_chacha = "0.3.1"
+rand_core = "0.6.2"
+merlin = { version = "2.0", default-features = false }
+parity-scale-codec = { version = "3.6.1", default-features = false, features = ["bit-vec", "derive"] }
+rand = "0.8"
+bitvec = { version = "1.0.0", default-features = false, features = ["alloc"] }
+scale-info = { version = "2.11.1", default-features = false, features = ["derive"] }
+itertools = "0.10.5"
+
+[dev-dependencies]
+hex-literal = "0.3.1"
+
+[build-dependencies]
+build-helper = { path = "../build-helper" }
