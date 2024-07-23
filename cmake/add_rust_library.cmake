@@ -57,6 +57,6 @@ function (add_rust_library CRATE_NAME)
 
     install(
         FILES "${CMAKE_BINARY_DIR}/${CRATE_NAME}Config.cmake"
-        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/"
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${CRATE_NAME}/"
     )
 endfunction()
