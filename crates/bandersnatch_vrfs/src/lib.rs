@@ -27,12 +27,6 @@ const PUBLIC_SERIALIZED_SIZE: usize = 33;
 const SIGNATURE_SERIALIZED_SIZE: usize = 65;
 const PREOUT_SERIALIZED_SIZE: usize = 33;
 
-/// Max number of inputs/outputs which can be handled by the VRF signing procedures.
-///
-/// The number is quite arbitrary and chosen to fulfill the use cases found so far.
-/// If required it can be extended in the future.
-// const MAX_VRF_IOS: u32 = 3;
-
 /// Bandersnatch public key.
 pub struct Public(pub [u8; PUBLIC_SERIALIZED_SIZE]);
 
@@ -86,55 +80,6 @@ struct Pair {
 }
 
 impl Pair {
-    //     type Seed = Seed;
-    //     type Public = Public;
-    //     type Signature = Signature;
-    //
-    //     /// Make a new key pair from secret seed material.
-    //     ///
-    //     /// The slice must be 32 bytes long or it will return an error.
-    //     fn from_seed_slice(seed_slice: &[u8]) -> Result<Pair, SecretStringError> {
-    //         if seed_slice.len() != SEED_SERIALIZED_SIZE {
-    //             return Err(SecretStringError::InvalidSeedLength);
-    //         }
-    //         let mut seed = [0; SEED_SERIALIZED_SIZE];
-    //         seed.copy_from_slice(seed_slice);
-    //         let secret = SecretKey::from_seed(&seed);
-    //         Ok(Pair { secret, seed })
-    //     }
-    //
-    //     /// Derive a child key from a series of given (hard) junctions.
-    //     ///
-    //     /// Soft junctions are not supported.
-    //     fn derive<Iter: Iterator<Item = DeriveJunction>>(
-    //         &self,
-    //         path: Iter,
-    //         _seed: Option<Seed>,
-    //     ) -> Result<(Pair, Option<Seed>), DeriveError> {
-    //         let derive_hard = |seed, cc| -> Seed {
-    //             ("bandersnatch-vrf-HDKD", seed, cc).using_encoded(sp_core_hashing::blake2_256)
-    //         };
-    //
-    //         let mut seed = self.seed();
-    //         for p in path {
-    //             if let DeriveJunction::Hard(cc) = p {
-    //                 seed = derive_hard(seed, cc);
-    //             } else {
-    //                 return Err(DeriveError::SoftKeyInPath);
-    //             }
-    //         }
-    //         Ok((Self::from_seed(&seed), Some(seed)))
-    //     }
-    //
-    //     fn public(&self) -> Public {
-    //         let public = self.secret.to_public();
-    //         let mut raw = [0; PUBLIC_SERIALIZED_SIZE];
-    //         public
-    //             .serialize_compressed(raw.as_mut_slice())
-    //             .expect("serialization length is constant and checked by test; qed");
-    //         Public::unchecked_from(raw)
-    //     }
-
     /// Sign a message.
     ///
     /// In practice this produce a Schnorr signature of a transcript composed by
@@ -158,26 +103,15 @@ impl Pair {
 
 /// Bandersnatch VRF types and operations.
 mod vrf {
+    use crate::{
+        Pair, Public, PublicKey, Signature, VrfCrypto, VrfPublic, VrfSecret,
+        PREOUT_SERIALIZED_SIZE, SIGNATURE_SERIALIZED_SIZE,
+    };
     use bandersnatch_vrfs::{
-        CanonicalDeserialize,
-        CanonicalSerialize,
-        IntoVrfInput,
-        Message,
-        ThinVrfSignature,
+        CanonicalDeserialize, CanonicalSerialize, IntoVrfInput, Message, ThinVrfSignature,
         Transcript,
     };
-    use codec::EncodeLike;
-    use crate::Decode;
-    use crate::Encode;
-    use crate::Pair;
-    use crate::Public;
-    use crate::PublicKey;
-    use crate::Signature;
-    use crate::VrfCrypto;
-    use crate::VrfPublic;
-    use crate::VrfSecret;
-    use crate::PREOUT_SERIALIZED_SIZE;
-    use crate::SIGNATURE_SERIALIZED_SIZE;
+    use codec::{Decode, Encode, EncodeLike};
 
     /// Bounded vector used for VRF inputs and outputs.
     ///
@@ -275,18 +209,6 @@ mod vrf {
             VrfSignData { transcript, inputs }
         }
 
-        // /// Append a message to the transcript.
-        // pub fn push_transcript_data(&mut self, data: &[u8]) {
-        //     self.transcript.append(data);
-        // }
-        //
-        // /// Tries to append a [`VrfInput`] to the vrf inputs list.
-        // ///
-        // /// On failure, returns back the [`VrfInput`] parameter.
-        // pub fn push_vrf_input(&mut self, input: VrfInput) -> Result<(), VrfInput> {
-        //     self.inputs.try_push(input)
-        // }
-
         /// Get the challenge associated to the `transcript` contained within the signing data.
         ///
         /// Ignores the vrf inputs and outputs.
@@ -313,16 +235,15 @@ mod vrf {
         pub signature: Signature,
     }
 
-        impl VrfCrypto for Pair {
+    impl VrfCrypto for Pair {
         type VrfInput = VrfInput;
         type VrfOutput = VrfOutput;
         type VrfSignData = VrfSignData;
         type VrfSignature = VrfSignature;
     }
 
-        impl VrfSecret for Pair {
+    impl VrfSecret for Pair {
         fn vrf_sign(&self, data: &Self::VrfSignData) -> Self::VrfSignature {
-            // const _: () = assert!(MAX_VRF_IOS == 3, "`MAX_VRF_IOS` expected to be 3");
             // Workaround to overcome backend signature generic over the number of IOs.
             match data.inputs.len() {
                 0 => self.vrf_sign_gen::<0>(data),
@@ -348,7 +269,6 @@ mod vrf {
 
     impl VrfPublic for Public {
         fn vrf_verify(&self, data: &Self::VrfSignData, signature: &Self::VrfSignature) -> bool {
-            // const _: () = assert!(MAX_VRF_IOS == 3, "`MAX_VRF_IOS` expected to be 3");
             let outputs_len = signature.outputs.len();
             if outputs_len != data.inputs.len() {
                 return false;
@@ -364,7 +284,7 @@ mod vrf {
         }
     }
 
-        impl Pair {
+    impl Pair {
         fn vrf_sign_gen<const N: usize>(&self, data: &VrfSignData) -> VrfSignature {
             let ios = core::array::from_fn(|i| self.secret.vrf_inout(data.inputs[i].0));
 
@@ -376,7 +296,6 @@ mod vrf {
                 .iter()
                 .map(|f| VrfOutput(f.clone()))
                 .collect();
-            //let outputs = VrfIosVec::truncate_from(outputs);
 
             let mut signature = VrfSignature {
                 signature: Signature([0; SIGNATURE_SERIALIZED_SIZE]),
@@ -453,15 +372,8 @@ mod ring_vrf {
     };
     use bandersnatch_vrfs::CanonicalDeserialize;
 
-    /// Overhead in the domain size with respect to the supported ring size.
-    ///
-    /// Some bits of the domain are reserved for the zk-proof to work.
-    // const RING_DOMAIN_OVERHEAD: u32 = 257;
-
     // Max size of serialized ring-vrf context given `domain_len`.
     pub(crate) const fn ring_context_serialized_size(domain_len: u32) -> usize {
-        // const G1_POINT_COMPRESSED_SIZE: usize = 48;
-        // const G2_POINT_COMPRESSED_SIZE: usize = 96;
         const G1_POINT_UNCOMPRESSED_SIZE: usize = 96;
         const G2_POINT_UNCOMPRESSED_SIZE: usize = 192;
         const OVERHEAD_SIZE: usize = 20;
@@ -473,68 +385,7 @@ mod ring_vrf {
             + G2_POINTS_NUM * G2_POINT_UNCOMPRESSED_SIZE
     }
 
-    //     pub(crate) const RING_VERIFIER_DATA_SERIALIZED_SIZE: usize = 388;
     pub(crate) const RING_SIGNATURE_SERIALIZED_SIZE: usize = 755;
-
-    //     /// remove as soon as soon as serialization is implemented by the backend
-    //     pub struct RingVerifierData {
-    //         /// Domain size.
-    //         pub domain_size: u32,
-    //         /// Verifier key.
-    //         pub verifier_key: VerifierKey,
-    //     }
-    //
-    //     impl From<RingVerifierData> for RingVerifier {
-    //         fn from(vd: RingVerifierData) -> RingVerifier {
-    //             bandersnatch_vrfs::ring::make_ring_verifier(vd.verifier_key, vd.domain_size as usize)
-    //         }
-    //     }
-    //
-    //     impl Encode for RingVerifierData {
-    //         fn encode(&self) -> Vec<u8> {
-    //             const ERR_STR: &str = "serialization length is constant and checked by test; qed";
-    //             let mut buf = [0; RING_VERIFIER_DATA_SERIALIZED_SIZE];
-    //             self.domain_size
-    //                 .serialize_compressed(&mut buf[..4])
-    //                 .expect(ERR_STR);
-    //             self.verifier_key
-    //                 .serialize_compressed(&mut buf[4..])
-    //                 .expect(ERR_STR);
-    //             buf.encode()
-    //         }
-    //     }
-    //
-    //     impl Decode for RingVerifierData {
-    //         fn decode<R: codec::Input>(i: &mut R) -> Result<Self, codec::Error> {
-    //             const ERR_STR: &str = "serialization length is constant and checked by test; qed";
-    //             let buf = <[u8; RING_VERIFIER_DATA_SERIALIZED_SIZE]>::decode(i)?;
-    //             let domain_size =
-    //                 <u32 as CanonicalDeserialize>::deserialize_compressed_unchecked(&mut &buf[..4])
-    //                     .expect(ERR_STR);
-    //             let verifier_key = <bandersnatch_vrfs::ring::VerifierKey as CanonicalDeserialize>::deserialize_compressed_unchecked(&mut &buf[4..]).expect(ERR_STR);
-    //
-    //             Ok(RingVerifierData {
-    //                 domain_size,
-    //                 verifier_key,
-    //             })
-    //         }
-    //     }
-    //
-    //     impl EncodeLike for RingVerifierData {}
-    //
-    //     impl MaxEncodedLen for RingVerifierData {
-    //         fn max_encoded_len() -> usize {
-    //             <[u8; RING_VERIFIER_DATA_SERIALIZED_SIZE]>::max_encoded_len()
-    //         }
-    //     }
-    //
-    //     impl TypeInfo for RingVerifierData {
-    //         type Identity = [u8; RING_VERIFIER_DATA_SERIALIZED_SIZE];
-    //
-    //         fn type_info() -> scale_info::Type {
-    //             Self::Identity::type_info()
-    //         }
-    //     }
 
     /// Context used to construct ring prover and verifier.
     ///
@@ -572,30 +423,7 @@ mod ring_vrf {
             let ring_verifier = self.0.init_ring_verifier(verifier_key);
             Some(ring_verifier)
         }
-
-        // /// Information required for a lazy construction of a ring verifier.
-        // pub fn verifier_data(&self, public_keys: &[Public]) -> Option<RingVerifierData> {
-        //     let mut pks = Vec::with_capacity(public_keys.len());
-        //     for public_key in public_keys {
-        //         let pk = PublicKey::deserialize_compressed_unchecked(public_key.as_slice()).ok()?;
-        //         pks.push(pk.0.into());
-        //     }
-        //     Some(RingVerifierData {
-        //         verifier_key: self.0.verifier_key(pks),
-        //         domain_size: self.0.domain_size,
-        //     })
-        // }
     }
-
-    // impl<const D: u32> Encode for RingContext<D> {
-    //     fn encode(&self) -> Vec<u8> {
-    //         let mut buf = vec![0; ring_context_serialized_size(D)];
-    //         self.0
-    //             .serialize_uncompressed(buf.as_mut_slice())
-    //             .expect("serialization length is constant and checked by test; qed");
-    //         buf
-    //     }
-    // }
 
     impl<const D: u32> Decode for RingContext<D> {
         fn decode<R: codec::Input>(input: &mut R) -> Result<Self, codec::Error> {
@@ -616,14 +444,13 @@ mod ring_vrf {
         pub signature: [u8; RING_SIGNATURE_SERIALIZED_SIZE],
     }
 
-        impl Pair {
+    impl Pair {
         /// Produce a ring-vrf signature.
         ///
         /// The ring signature is verifiable if the public key corresponding to the
         /// signing [`Pair`] is part of the ring from which the [`RingProver`] has
         /// been constructed. If not, the produced signature is just useless.
         pub fn ring_vrf_sign(&self, data: &VrfSignData, prover: &RingProver) -> RingVrfSignature {
-            // const _: () = assert!(MAX_VRF_IOS == 3, "`MAX_VRF_IOS` expected to be 3");
             // Workaround to overcome backend signature generic over the number of IOs.
             match data.inputs.len() {
                 0 => self.ring_vrf_sign_gen::<0>(data, prover),
@@ -653,7 +480,6 @@ mod ring_vrf {
                 .iter()
                 .map(|f| VrfOutput(f.clone()))
                 .collect();
-            // let outputs = VrfIosVec::truncate_from(outputs);
 
             let mut signature = RingVrfSignature {
                 outputs,
@@ -675,7 +501,6 @@ mod ring_vrf {
         /// The signature is verifiable if it has been produced by a member of the ring
         /// from which the [`RingVerifier`] has been constructed.
         pub fn ring_vrf_verify(&self, data: &VrfSignData, verifier: &RingVerifier) -> bool {
-            // const _: () = assert!(MAX_VRF_IOS == 3, "`MAX_VRF_IOS` expected to be 3");
             let preouts_len = self.outputs.len();
             if preouts_len != data.inputs.len() {
                 return false;
@@ -720,6 +545,24 @@ mod ring_vrf {
     }
 }
 
+// Calling code may pass a null pointer for empty slices, but Rust expects an aligned pointer
+fn align_slice_ptr<T>(ptr: *const T) -> *const T {
+    if ptr == core::ptr::null() {
+        core::ptr::NonNull::<T>::dangling().as_ptr() as *const _
+    } else {
+        ptr
+    }
+}
+
+// Calling code may pass a null pointer for empty slices, but Rust expects an aligned pointer
+fn align_slice_ptr_mut<T>(ptr: *mut T) -> *mut T {
+    if ptr == core::ptr::null_mut() {
+        core::ptr::NonNull::<T>::dangling().as_ptr()
+    } else {
+        ptr
+    }
+}
+
 pub const BANDERSNATCH_SEED_SIZE: usize = 32; // SEED_SERIALIZED_SIZE
 pub const BANDERSNATCH_SECRET_KEY_SIZE: usize = BANDERSNATCH_SEED_SIZE;
 pub const BANDERSNATCH_PUBLIC_KEY_SIZE: usize = 33; // PUBLIC_KEY_LENGTH
@@ -727,17 +570,10 @@ pub const BANDERSNATCH_SIGNATURE_SIZE: usize = 65; // SIGNATURE_SERIALIZED_SIZE
 pub const BANDERSNATCH_RING_SIGNATURE_SIZE: usize = 755; //RING_SIGNATURE_SERIALIZED_SIZE
 pub const BANDERSNATCH_PREOUT_SIZE: usize = 33; //PREOUT_SERIALIZED_SIZE
 
-//use bandersnatch_vrfs::bandersnatch::SWAffine;
 use bandersnatch_vrfs::ring::{RingProver, RingVerifier};
 use bandersnatch_vrfs::scale::Encode;
-//use bandersnatch_vrfs::vrf::VrfPreOut;
 use bandersnatch_vrfs::PublicKey;
-//use ptr::copy;
-// use ring_vrf::RingContext;
-// use ring_vrf::{RingVrfSignature, RING_SIGNATURE_SERIALIZED_SIZE};
 use ring_vrf::RingVrfSignature;
-// use slice::from_raw_parts;
-// use slice::from_raw_parts_mut;
 use std::ptr::null;
 use vrf::{VrfInput, VrfOutput, VrfSignData};
 
@@ -779,9 +615,12 @@ pub unsafe extern "C" fn bandersnatch_sign(
 
     let secret = SecretKey::from_seed(&seed);
 
-    let data = slice::from_raw_parts(message_ptr, message_size as usize);
+    let data = slice::from_raw_parts(align_slice_ptr(message_ptr), message_size as usize);
 
-    let pair = Pair { secret, _seed: seed };
+    let pair = Pair {
+        secret,
+        _seed: seed,
+    };
 
     let signature = pair.sign(&data);
 
@@ -803,7 +642,7 @@ pub unsafe extern "C" fn bandersnatch_verify(
     let signature = *(signature_ptr as *const [u8; BANDERSNATCH_SIGNATURE_SIZE]);
     let signature = Signature(signature);
 
-    let message = slice::from_raw_parts(message_ptr, message_size);
+    let message = slice::from_raw_parts(align_slice_ptr(message_ptr), message_size);
 
     let public = *(public_ptr as *const [u8; BANDERSNATCH_PUBLIC_KEY_SIZE]);
     let public = Public::unchecked_from(public);
@@ -828,8 +667,8 @@ pub unsafe extern "C" fn bandersnatch_vrf_input(
     message_ptr: *const u8,
     message_size: usize,
 ) -> *mut bandersnatch_VrfInput {
-    let domain = slice::from_raw_parts(domain_ptr, domain_size);
-    let message = slice::from_raw_parts(message_ptr, message_size);
+    let domain = slice::from_raw_parts(align_slice_ptr(domain_ptr), domain_size);
+    let message = slice::from_raw_parts(align_slice_ptr(message_ptr), message_size);
 
     // make VrfInput in heap
     let input = Box::new(vrf::VrfInput::new(domain, message));
@@ -861,7 +700,10 @@ pub unsafe extern "C" fn bandersnatch_vrf_output(
 
     let secret = SecretKey::from_seed(&seed);
 
-    let pair = Pair { secret, _seed: seed };
+    let pair = Pair {
+        secret,
+        _seed: seed,
+    };
 
     let input = &*(input_ptr as *const vrf::VrfInput);
 
@@ -929,17 +771,20 @@ pub unsafe extern "C" fn bandersnatch_vrf_sign_data(
     inputs_ptr: *const *const bandersnatch_VrfInput,
     inputs_size: usize,
 ) -> *mut bandersnatch_VrfSignData {
-    let transcript_label = slice::from_raw_parts(transcript_label_ptr, transcript_label_size);
+    let transcript_label =
+        slice::from_raw_parts(align_slice_ptr(transcript_label_ptr), transcript_label_size);
 
-    let transcript_data_ptrs = slice::from_raw_parts(transcript_data_ptrs, transcript_data_size);
-    let transcript_data_sizes = slice::from_raw_parts(transcript_data_sizes, transcript_data_size);
+    let transcript_data_ptrs =
+        slice::from_raw_parts(align_slice_ptr(transcript_data_ptrs), transcript_data_size);
+    let transcript_data_sizes =
+        slice::from_raw_parts(align_slice_ptr(transcript_data_sizes), transcript_data_size);
 
     let transcript_data = transcript_data_ptrs
         .iter()
         .zip(transcript_data_sizes.iter())
-        .map(|(ptr, size)| slice::from_raw_parts(*ptr, *size as _));
+        .map(|(ptr, size)| slice::from_raw_parts(align_slice_ptr(*ptr), *size as _));
 
-    let inputs = slice::from_raw_parts(inputs_ptr, inputs_size);
+    let inputs = slice::from_raw_parts(align_slice_ptr(inputs_ptr), inputs_size);
 
     let inputs: Vec<_> = inputs
         .iter()
@@ -965,7 +810,7 @@ pub unsafe extern "C" fn bandersnatch_sign_data_challenge(
     bytes_size: usize,
 ) {
     let sign_data = &*(sign_data_ptr as *const vrf::VrfSignData);
-    let bytes = slice::from_raw_parts_mut(bytes_ptr, bytes_size);
+    let bytes = slice::from_raw_parts_mut(align_slice_ptr_mut(bytes_ptr), bytes_size);
 
     match bytes_size {
         16 => {
@@ -990,10 +835,10 @@ pub unsafe extern "C" fn bandersnatch_make_bytes(
     bytes_ptr: *mut u8,
     bytes_size: usize,
 ) {
-    let context = slice::from_raw_parts(context_ptr, context_size);
+    let context = slice::from_raw_parts(align_slice_ptr(context_ptr), context_size);
     let input = &*(input_ptr as *const vrf::VrfInput);
     let output = &*(output_ptr as *const vrf::VrfOutput);
-    let bytes = slice::from_raw_parts_mut(bytes_ptr, bytes_size);
+    let bytes = slice::from_raw_parts_mut(align_slice_ptr_mut(bytes_ptr), bytes_size);
 
     match bytes_size {
         16 => {
@@ -1070,7 +915,10 @@ pub unsafe extern "C" fn bandersnatch_vrf_sign(
 
     let secret = SecretKey::from_seed(&seed);
 
-    let pair = Pair { secret, _seed: seed };
+    let pair = Pair {
+        secret,
+        _seed: seed,
+    };
 
     let sign_data = &*(sign_data_ptr as *const vrf::VrfSignData);
 
@@ -1160,7 +1008,7 @@ pub unsafe extern "C" fn bandersnatch_ring_prover(
 ) -> *const bandersnatch_RingProver {
     let ring_context = &*(ring_context_ptr as *const ring_vrf::RingContext<2048>);
 
-    let keys = slice::from_raw_parts(keys_ptrs, keys_size);
+    let keys = slice::from_raw_parts(align_slice_ptr(keys_ptrs), keys_size);
 
     let keys: Vec<_> = keys
         .iter()
@@ -1200,7 +1048,7 @@ pub unsafe extern "C" fn bandersnatch_ring_verifier(
 ) -> *const bandersnatch_RingVerifier {
     let ring_context = &*(ring_context_ptr as *const ring_vrf::RingContext<2048>);
 
-    let keys = slice::from_raw_parts(keys_ptrs, keys_size);
+    let keys = slice::from_raw_parts(align_slice_ptr(keys_ptrs), keys_size);
 
     let keys: Vec<_> = keys
         .iter()
@@ -1283,7 +1131,10 @@ pub unsafe extern "C" fn bandersnatch_ring_vrf_sign(
 
     let secret = SecretKey::from_seed(&seed);
 
-    let pair = Pair { secret, _seed: seed };
+    let pair = Pair {
+        secret,
+        _seed: seed,
+    };
 
     let sign_data = &*(sign_data_ptr as *const VrfSignData);
 

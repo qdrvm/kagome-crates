@@ -28,7 +28,6 @@ use std::os::raw::c_ulong;
 use std::vec::Vec;
 use utils::*;
 
-
 #[repr(C)]
 pub struct BytesVec {
     data: *mut u8,
@@ -41,28 +40,33 @@ pub enum Result {
     Err,
 }
 
-impl From <std::result::Result<Vec<u8>, ()>> for Result {
+impl From<std::result::Result<Vec<u8>, ()>> for Result {
     fn from(value: std::result::Result<Vec<u8>, ()>) -> Self {
         match value {
             Ok(mut vec) => {
-                let r = BytesVec{
+                let r = BytesVec {
                     data: vec.as_mut_ptr(),
                     size: vec.len() as _,
                 };
                 std::mem::forget(vec);
                 Result::Ok(r)
-            },
-            Err(_) => Result::Err
+            }
+            Err(_) => Result::Err,
         }
     }
 }
 
 impl BytesVec {
     unsafe fn as_slice(&self) -> Vec<u8> {
-        std::slice::from_raw_parts_mut(self.data, self.size as usize).to_vec()
+        // Calling code may pass a null pointer for empty slices, but Rust expects an aligned pointer
+        let aligned_data = if self.data == core::ptr::null_mut() {
+            core::ptr::NonNull::<u8>::dangling().as_ptr()
+        } else {
+            self.data
+        };
+        std::slice::from_raw_parts_mut(aligned_data, self.size as usize).to_vec()
     }
 }
-
 
 #[allow(unused_attributes)]
 #[no_mangle]
@@ -71,7 +75,6 @@ pub unsafe extern "C" fn AWCR_deallocate_bytesvec(data: *mut BytesVec) {
     debug_assert!(!(*data).data.is_null());
     drop(Box::from_raw((*data).data));
 }
-
 
 /// Interfaces for working with *Arkworks* elliptic curves related types from within the runtime.
 ///
@@ -283,8 +286,12 @@ pub unsafe extern "C" fn bw6_761_msm_g2(bases: BytesVec, bigints: BytesVec) -> R
 ///   - `scalar`: `ArkScale<&[u64]>`.
 /// - Returns encoded: `ArkScaleProjective<ark_ed_on_bls12_377::EdwardsProjective>`.
 #[no_mangle]
-pub unsafe extern "C" fn ed_on_bls12_377_mul_projective(base: BytesVec, scalar: BytesVec) -> Result {
-    mul_projective_te::<ark_ed_on_bls12_377::EdwardsConfig>(base.as_slice(), scalar.as_slice()).into()
+pub unsafe extern "C" fn ed_on_bls12_377_mul_projective(
+    base: BytesVec,
+    scalar: BytesVec,
+) -> Result {
+    mul_projective_te::<ark_ed_on_bls12_377::EdwardsConfig>(base.as_slice(), scalar.as_slice())
+        .into()
 }
 
 /// Twisted Edwards multi scalar multiplication for Ed-on-BLS12-377.
@@ -309,7 +316,11 @@ pub unsafe extern "C" fn ed_on_bls12_381_bandersnatch_sw_mul_projective(
     base: BytesVec,
     scalar: BytesVec,
 ) -> Result {
-    mul_projective_sw::<ark_ed_on_bls12_381_bandersnatch::SWConfig>(base.as_slice(), scalar.as_slice()).into()
+    mul_projective_sw::<ark_ed_on_bls12_381_bandersnatch::SWConfig>(
+        base.as_slice(),
+        scalar.as_slice(),
+    )
+    .into()
 }
 
 /// Twisted Edwards projective multiplication for Ed-on-BLS12-381-Bandersnatch.
@@ -324,7 +335,11 @@ pub unsafe extern "C" fn ed_on_bls12_381_bandersnatch_te_mul_projective(
     base: BytesVec,
     scalar: BytesVec,
 ) -> Result {
-    mul_projective_te::<ark_ed_on_bls12_381_bandersnatch::EdwardsConfig>(base.as_slice(), scalar.as_slice()).into()
+    mul_projective_te::<ark_ed_on_bls12_381_bandersnatch::EdwardsConfig>(
+        base.as_slice(),
+        scalar.as_slice(),
+    )
+    .into()
 }
 
 /// Short Weierstrass multi scalar multiplication for Ed-on-BLS12-381-Bandersnatch.
@@ -338,7 +353,8 @@ pub unsafe extern "C" fn ed_on_bls12_381_bandersnatch_sw_msm(
     bases: BytesVec,
     scalars: BytesVec,
 ) -> Result {
-    msm_sw::<ark_ed_on_bls12_381_bandersnatch::SWConfig>(bases.as_slice(), scalars.as_slice()).into()
+    msm_sw::<ark_ed_on_bls12_381_bandersnatch::SWConfig>(bases.as_slice(), scalars.as_slice())
+        .into()
 }
 
 /// Twisted Edwards multi scalar multiplication for Ed-on-BLS12-381-Bandersnatch.
@@ -353,5 +369,6 @@ pub unsafe extern "C" fn ed_on_bls12_381_bandersnatch_te_msm(
     bases: BytesVec,
     scalars: BytesVec,
 ) -> Result {
-    msm_te::<ark_ed_on_bls12_381_bandersnatch::EdwardsConfig>(bases.as_slice(), scalars.as_slice()).into()
+    msm_te::<ark_ed_on_bls12_381_bandersnatch::EdwardsConfig>(bases.as_slice(), scalars.as_slice())
+        .into()
 }
