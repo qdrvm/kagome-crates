@@ -1,12 +1,14 @@
+use std::os::raw::c_ulong;
+use std::{ptr, slice};
+
 use ed25519_dalek::ed25519::signature::Signature;
 use ed25519_dalek::{
     Keypair, PublicKey, SecretKey, Signer, Verifier, KEYPAIR_LENGTH, PUBLIC_KEY_LENGTH,
     SIGNATURE_LENGTH,
 };
-use std::os::raw::c_ulong;
-use std::{ptr, slice};
 
 use crate::constants::ED25519_SEED_LENGTH;
+use crate::{align_slice_ptr};
 
 /// Status code of a function call
 #[repr(C)]
@@ -63,7 +65,7 @@ pub unsafe extern "C" fn ed25519_sign(
     if keypair_ptr.is_null() || message_ptr.is_null() {
         return Ed25519Result::NullArgument;
     }
-    let message = slice::from_raw_parts(message_ptr, message_size as usize);
+    let message = slice::from_raw_parts(align_slice_ptr(message_ptr), message_size as usize);
     let keypair_bytes = slice::from_raw_parts(keypair_ptr, KEYPAIR_LENGTH);
     let keypair = match Keypair::from_bytes(keypair_bytes) {
         Ok(kp) => kp,
@@ -100,7 +102,7 @@ pub unsafe extern "C" fn ed25519_verify(
     }
     let public_key_bytes = slice::from_raw_parts(public_key_ptr, PUBLIC_KEY_LENGTH);
     let signature_bytes = slice::from_raw_parts(signature_ptr, SIGNATURE_LENGTH);
-    let message_bytes = slice::from_raw_parts(message_ptr, message_size as usize);
+    let message_bytes = slice::from_raw_parts(align_slice_ptr(message_ptr), message_size as usize);
     let public_key = match PublicKey::from_bytes(public_key_bytes) {
         Ok(pk) => pk,
         Err(_) => return Ed25519Result::PublicKeyFromBytesFailed,
