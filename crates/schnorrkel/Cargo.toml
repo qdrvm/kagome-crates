@@ -10,6 +10,7 @@ name = "schnorrkel_crust"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
+cpp = { path = "../cpp" }
 schnorrkel = { version="0.9.1", features = ["preaudit_deprecated"] }
 ed25519-dalek = { version="1.0.0" }
 rand_chacha = "0.3.1"

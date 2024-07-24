@@ -18,15 +18,6 @@
 //! Glue code to generate C headers for sr25519 and ed25519 rust implementations
 //!
 
-// Calling code may pass a null pointer for empty slices, but Rust expects an aligned pointer
-pub(crate) fn align_slice_ptr<T>(ptr: *const T) -> *const T {
-    if ptr == core::ptr::null() {
-        core::ptr::NonNull::<T>::dangling().as_ptr() as *const _
-    } else {
-        ptr
-    }
-}
-
 /// Bitfield impls
 pub mod bitfield;
 

@@ -166,6 +166,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cpp"
+version = "0.0.1"
+
+[[package]]
 name = "cpufeatures"
 version = "0.2.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -677,6 +681,7 @@ version = "0.2.0"
 dependencies = [
  "bitvec",
  "build-helper",
+ "cpp",
  "ed25519-dalek",
  "hex-literal",
  "itertools",

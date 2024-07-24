@@ -545,24 +545,6 @@ mod ring_vrf {
     }
 }
 
-// Calling code may pass a null pointer for empty slices, but Rust expects an aligned pointer
-fn align_slice_ptr<T>(ptr: *const T) -> *const T {
-    if ptr == core::ptr::null() {
-        core::ptr::NonNull::<T>::dangling().as_ptr() as *const _
-    } else {
-        ptr
-    }
-}
-
-// Calling code may pass a null pointer for empty slices, but Rust expects an aligned pointer
-fn align_slice_ptr_mut<T>(ptr: *mut T) -> *mut T {
-    if ptr == core::ptr::null_mut() {
-        core::ptr::NonNull::<T>::dangling().as_ptr()
-    } else {
-        ptr
-    }
-}
-
 pub const BANDERSNATCH_SEED_SIZE: usize = 32; // SEED_SERIALIZED_SIZE
 pub const BANDERSNATCH_SECRET_KEY_SIZE: usize = BANDERSNATCH_SEED_SIZE;
 pub const BANDERSNATCH_PUBLIC_KEY_SIZE: usize = 33; // PUBLIC_KEY_LENGTH
@@ -615,7 +597,7 @@ pub unsafe extern "C" fn bandersnatch_sign(
 
     let secret = SecretKey::from_seed(&seed);
 
-    let data = slice::from_raw_parts(align_slice_ptr(message_ptr), message_size as usize);
+    let data = cpp::from_raw_parts(message_ptr, message_size as usize);
 
     let pair = Pair {
         secret,
@@ -642,7 +624,7 @@ pub unsafe extern "C" fn bandersnatch_verify(
     let signature = *(signature_ptr as *const [u8; BANDERSNATCH_SIGNATURE_SIZE]);
     let signature = Signature(signature);
 
-    let message = slice::from_raw_parts(align_slice_ptr(message_ptr), message_size);
+    let message = cpp::from_raw_parts(message_ptr, message_size);
 
     let public = *(public_ptr as *const [u8; BANDERSNATCH_PUBLIC_KEY_SIZE]);
     let public = Public::unchecked_from(public);
@@ -667,8 +649,8 @@ pub unsafe extern "C" fn bandersnatch_vrf_input(
     message_ptr: *const u8,
     message_size: usize,
 ) -> *mut bandersnatch_VrfInput {
-    let domain = slice::from_raw_parts(align_slice_ptr(domain_ptr), domain_size);
-    let message = slice::from_raw_parts(align_slice_ptr(message_ptr), message_size);
+    let domain = cpp::from_raw_parts(domain_ptr, domain_size);
+    let message = cpp::from_raw_parts(message_ptr, message_size);
 
     // make VrfInput in heap
     let input = Box::new(vrf::VrfInput::new(domain, message));
@@ -772,19 +754,19 @@ pub unsafe extern "C" fn bandersnatch_vrf_sign_data(
     inputs_size: usize,
 ) -> *mut bandersnatch_VrfSignData {
     let transcript_label =
-        slice::from_raw_parts(align_slice_ptr(transcript_label_ptr), transcript_label_size);
+        cpp::from_raw_parts(transcript_label_ptr, transcript_label_size);
 
     let transcript_data_ptrs =
-        slice::from_raw_parts(align_slice_ptr(transcript_data_ptrs), transcript_data_size);
+        cpp::from_raw_parts(transcript_data_ptrs, transcript_data_size);
     let transcript_data_sizes =
-        slice::from_raw_parts(align_slice_ptr(transcript_data_sizes), transcript_data_size);
+        cpp::from_raw_parts(transcript_data_sizes, transcript_data_size);
 
     let transcript_data = transcript_data_ptrs
         .iter()
         .zip(transcript_data_sizes.iter())
-        .map(|(ptr, size)| slice::from_raw_parts(align_slice_ptr(*ptr), *size as _));
+        .map(|(ptr, size)| cpp::from_raw_parts(*ptr, *size as _));
 
-    let inputs = slice::from_raw_parts(align_slice_ptr(inputs_ptr), inputs_size);
+    let inputs = cpp::from_raw_parts(inputs_ptr, inputs_size);
 
     let inputs: Vec<_> = inputs
         .iter()
@@ -810,7 +792,7 @@ pub unsafe extern "C" fn bandersnatch_sign_data_challenge(
     bytes_size: usize,
 ) {
     let sign_data = &*(sign_data_ptr as *const vrf::VrfSignData);
-    let bytes = slice::from_raw_parts_mut(align_slice_ptr_mut(bytes_ptr), bytes_size);
+    let bytes = cpp::from_raw_parts_mut(bytes_ptr, bytes_size);
 
     match bytes_size {
         16 => {
@@ -835,10 +817,10 @@ pub unsafe extern "C" fn bandersnatch_make_bytes(
     bytes_ptr: *mut u8,
     bytes_size: usize,
 ) {
-    let context = slice::from_raw_parts(align_slice_ptr(context_ptr), context_size);
+    let context = cpp::from_raw_parts(context_ptr, context_size);
     let input = &*(input_ptr as *const vrf::VrfInput);
     let output = &*(output_ptr as *const vrf::VrfOutput);
-    let bytes = slice::from_raw_parts_mut(align_slice_ptr_mut(bytes_ptr), bytes_size);
+    let bytes = cpp::from_raw_parts_mut(bytes_ptr, bytes_size);
 
     match bytes_size {
         16 => {
@@ -1008,7 +990,7 @@ pub unsafe extern "C" fn bandersnatch_ring_prover(
 ) -> *const bandersnatch_RingProver {
     let ring_context = &*(ring_context_ptr as *const ring_vrf::RingContext<2048>);
 
-    let keys = slice::from_raw_parts(align_slice_ptr(keys_ptrs), keys_size);
+    let keys = cpp::from_raw_parts(keys_ptrs, keys_size);
 
     let keys: Vec<_> = keys
         .iter()
@@ -1048,7 +1030,7 @@ pub unsafe extern "C" fn bandersnatch_ring_verifier(
 ) -> *const bandersnatch_RingVerifier {
     let ring_context = &*(ring_context_ptr as *const ring_vrf::RingContext<2048>);
 
-    let keys = slice::from_raw_parts(align_slice_ptr(keys_ptrs), keys_size);
+    let keys = cpp::from_raw_parts(keys_ptrs, keys_size);
 
     let keys: Vec<_> = keys
         .iter()

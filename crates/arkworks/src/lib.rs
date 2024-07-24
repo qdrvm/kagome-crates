@@ -58,13 +58,7 @@ impl From<std::result::Result<Vec<u8>, ()>> for Result {
 
 impl BytesVec {
     unsafe fn as_slice(&self) -> Vec<u8> {
-        // Calling code may pass a null pointer for empty slices, but Rust expects an aligned pointer
-        let aligned_data = if self.data == core::ptr::null_mut() {
-            core::ptr::NonNull::<u8>::dangling().as_ptr()
-        } else {
-            self.data
-        };
-        std::slice::from_raw_parts_mut(aligned_data, self.size as usize).to_vec()
+        cpp::from_raw_parts_mut(self.data, self.size as usize).to_vec()
     }
 }
 
