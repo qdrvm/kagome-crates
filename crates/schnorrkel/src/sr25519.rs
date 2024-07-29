@@ -3,7 +3,6 @@ use std::os::raw::c_ulong;
 use std::ptr;
 use std::slice;
 
-use itertools::Itertools;
 pub use merlin::Transcript;
 use parity_scale_codec::Encode;
 use rand::{seq::SliceRandom, SeedableRng};
@@ -385,7 +384,7 @@ pub unsafe extern "C" fn sr25519_sign(
 ) {
     let public = slice::from_raw_parts(public_ptr, SR25519_PUBLIC_SIZE as usize);
     let secret = slice::from_raw_parts(secret_ptr, SR25519_SECRET_SIZE as usize);
-    let message = slice::from_raw_parts(message_ptr, message_length as usize);
+    let message = cpp::from_raw_parts(message_ptr, message_length as usize);
 
     let sig = create_secret(secret).sign_simple(SIGNING_CTX, message, &create_public(public));
 
@@ -414,7 +413,7 @@ pub unsafe extern "C" fn sr25519_verify_deprecated(
 ) -> bool {
     let public = slice::from_raw_parts(public_ptr, SR25519_PUBLIC_SIZE as usize);
     let signature = slice::from_raw_parts(signature_ptr, SR25519_SIGNATURE_SIZE as usize);
-    let message = slice::from_raw_parts(message_ptr, message_length as usize);
+    let message = cpp::from_raw_parts(message_ptr, message_length as usize);
 
     create_public(public)
         .verify_simple_preaudit_deprecated(SIGNING_CTX, message, &signature)
@@ -439,7 +438,7 @@ pub unsafe extern "C" fn sr25519_verify(
 ) -> bool {
     let public = slice::from_raw_parts(public_ptr, SR25519_PUBLIC_SIZE as usize);
     let signature = slice::from_raw_parts(signature_ptr, SR25519_SIGNATURE_SIZE as usize);
-    let message = slice::from_raw_parts(message_ptr, message_length as usize);
+    let message = cpp::from_raw_parts(message_ptr, message_length as usize);
     let signature = match Signature::from_bytes(signature) {
         Ok(signature) => signature,
         Err(_) => return false,
@@ -503,7 +502,7 @@ pub unsafe extern "C" fn sr25519_vrf_sign_if_less(
 ) -> VrfResult {
     let keypair_bytes = slice::from_raw_parts(keypair_ptr, SR25519_KEYPAIR_SIZE as usize);
     let keypair = create_from_pair(keypair_bytes);
-    let message = slice::from_raw_parts(message_ptr, message_length as usize);
+    let message = cpp::from_raw_parts(message_ptr, message_length as usize);
 
     let limit = slice::from_raw_parts(limit_ptr, SR25519_VRF_THRESHOLD_SIZE as usize);
     let mut limit_arr: [u8; SR25519_VRF_THRESHOLD_SIZE as usize] = Default::default();
@@ -561,7 +560,7 @@ pub unsafe extern "C" fn sr25519_vrf_verify(
         public_key_ptr,
         SR25519_PUBLIC_SIZE as usize,
     ));
-    let message = slice::from_raw_parts(message_ptr, message_length as usize);
+    let message = cpp::from_raw_parts(message_ptr, message_length as usize);
     let ctx = signing_context(SIGNING_CTX).bytes(message);
     let given_out = return_if_err!(VRFOutput::from_bytes(slice::from_raw_parts(
         output_ptr,
@@ -810,7 +809,7 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_assignments_cert_v2(
     let keypair_bytes = slice::from_raw_parts(keypair_ptr, SR25519_KEYPAIR_SIZE as usize);
     let assignments_key = create_from_pair(keypair_bytes);
 
-    let leaving_cores = slice::from_raw_parts(leaving_cores_ptr, leaving_cores_num as usize);
+    let leaving_cores = cpp::from_raw_parts(leaving_cores_ptr, leaving_cores_num as usize);
 
     let relay_vrf_story =
         std::mem::transmute::<*const RelayVRFStory, &RelayVRFStory>(relay_vrf_story);
@@ -866,11 +865,8 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_assignments_cert_v2(
 /// @param cores_cap - leaving cores capacity
 #[allow(unused_attributes)]
 #[no_mangle]
-pub unsafe extern "C" fn sr25519_clear_assigned_cores_v2(
-    cores_out: *mut u32,
-    cores_out_sz: u64,
-) {
-    let _ = Box::<[u32]>::from(std::slice::from_raw_parts(cores_out, cores_out_sz as usize));
+pub unsafe extern "C" fn sr25519_clear_assigned_cores_v2(cores_out: *mut u32, cores_out_sz: u64) {
+    let _ = Box::<[u32]>::from(cpp::from_raw_parts(cores_out, cores_out_sz as usize));
 }
 
 /// Computes output and proof for valid VRF assignment certificate.
@@ -903,7 +899,7 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_assignments_cert(
     let keypair_bytes = slice::from_raw_parts(keypair_ptr, SR25519_KEYPAIR_SIZE as usize);
     let assignments_key = create_from_pair(keypair_bytes);
 
-    let leaving_cores = slice::from_raw_parts(leaving_cores_ptr, leaving_cores_num as usize);
+    let leaving_cores = cpp::from_raw_parts(leaving_cores_ptr, leaving_cores_num as usize);
 
     let mut core = u32::default();
     let relay_vrf_story =

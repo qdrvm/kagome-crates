@@ -207,6 +207,7 @@ dependencies = [
  "ark-ed-on-bls12-381-bandersnatch",
  "ark-scale",
  "build-helper",
+ "cpp",
 ]
 
 [[package]]
@@ -317,6 +318,10 @@ checksum = "2850f2f5a82cbf437dd5af4d49848fbdfc27c157c3d010345776f952765261c5"
 dependencies = [
  "os_str_bytes",
 ]
+
+[[package]]
+name = "cpp"
+version = "0.0.1"
 
 [[package]]
 name = "crossbeam-deque"

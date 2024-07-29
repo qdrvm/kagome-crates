@@ -1,3 +1,4 @@
+// Copyright 2024 Quadrivium via https://github.com/qdrvm/kagome-crates
 // Copyright 2019 Soramitsu via https://github.com/Warchant/sr25519-crust
 // Copyright 2019 Paritytech via https://github.com/paritytech/schnorrkel-js/
 // Copyright 2019 @polkadot/wasm-schnorrkel authors & contributors
@@ -16,6 +17,7 @@
 //!
 //! Glue code to generate C headers for sr25519 and ed25519 rust implementations
 //!
+
 /// Bitfield impls
 pub mod bitfield;
 
