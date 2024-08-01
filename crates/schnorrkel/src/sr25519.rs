@@ -848,8 +848,8 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_assignments_cert_v2(
     if let Some((vrf_in_out, vrf_proof, _)) = maybe_assignment {
         let len = assigned_cores.len();
 
-        *cores_out = assigned_cores.as_mut_ptr();
         *cores_out_sz = assigned_cores.len() as u64;
+        *cores_out = (*Box::<[u32]>::into_raw(assigned_cores)).as_mut_ptr();
 
         cert_output.data = *vrf_in_out.as_output_bytes();
         cert_proof.data = vrf_proof.to_bytes();
