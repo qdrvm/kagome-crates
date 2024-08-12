@@ -53,10 +53,13 @@ function (add_rust_library CRATE_NAME)
         DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     )
 
-    configure_file(cmakeConfig.cmake.in "${CMAKE_BINARY_DIR}/${CRATE_NAME}Config.cmake" @ONLY)
-
+    include(CMakePackageConfigHelpers)
+    configure_package_config_file(cmakeConfig.cmake.in
+        "${CMAKE_BINARY_DIR}/${CRATE_NAME}Config.cmake"
+        INSTALL_DESTINATION "share/${CRATE_NAME}"
+    )
     install(
         FILES "${CMAKE_BINARY_DIR}/${CRATE_NAME}Config.cmake"
-        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/${CRATE_NAME}/"
+        DESTINATION "share/${CRATE_NAME}"
     )
 endfunction()

@@ -12,3 +12,9 @@ install(
     DIRECTORY generated/include/
     TYPE INCLUDE
 )
+
+add_library(kagome-crates INTERFACE)
+install(TARGETS kagome-crates EXPORT kagome-crates-config)
+install(EXPORT kagome-crates-config
+    DESTINATION share/kagome-crates
+)

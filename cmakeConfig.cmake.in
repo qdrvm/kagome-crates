@@ -1,3 +1,5 @@
+@PACKAGE_INIT@
+
 include(GNUInstallDirs)
 
 # Compute the installation prefix relative to this file.
