@@ -14,18 +14,24 @@ else ()
 endif ()
 
 set(CRATES_DIR "${PROJECT_SOURCE_DIR}/crates")
+set(CRATES_INCLUDE ${PROJECT_SOURCE_DIR}/generated/include)
 
 function (add_rust_library CRATE_NAME)
-    cmake_parse_arguments(x "" "HEADER_FILE;LIB_NAME" "" ${ARGV})
-    message(STATUS HEADER_FILE: ${x_HEADER_FILE})
-    message(STATUS LIB_NAME: ${x_LIB_NAME})
+    set(CRATE_BUILD ${CMAKE_BINARY_DIR}/${CRATE_NAME})
+    set(CRATE_LIB_STATIC ${CRATE_BUILD}/${CARGO_BUILD_TYPE}/${CMAKE_STATIC_LIBRARY_PREFIX}${CRATE_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX})
+    set(CRATE_LIB_SHARED ${CRATE_BUILD}/${CARGO_BUILD_TYPE}/${CMAKE_SHARED_LIBRARY_PREFIX}${CRATE_NAME}${CMAKE_SHARED_LIBRARY_SUFFIX})
+    set(CRATE_HEADER ${CRATES_INCLUDE}/${CRATE_NAME}.h)
+    if(BUILD_SHARED_LIBS)
+        set(CRATE_LIB ${CRATE_LIB_SHARED})
+    else()
+        set(CRATE_LIB ${CRATE_LIB_STATIC})
+    endif()
 
     set(CARGO_COMMAND "${CMAKE_COMMAND}" -E env 
-            HEADER_FILE="${x_HEADER_FILE}" CBINDGEN_CONFIG="${PROJECT_SOURCE_DIR}/cbindgen.toml" 
+            HEADER_FILE=${CRATE_HEADER} CBINDGEN_CONFIG="${PROJECT_SOURCE_DIR}/cbindgen.toml" 
         cargo build 
-            --target-dir "${CMAKE_BINARY_DIR}/${CRATE_NAME}" 
+            --target-dir ${CRATE_BUILD}
             ${CARGO_BUILD_OPTION})
-    message(STATUS ${CARGO_COMMAND})
     add_custom_target(
         "cargo_build_${CRATE_NAME}"
         ALL
@@ -34,22 +40,10 @@ function (add_rust_library CRATE_NAME)
     )    
 
     add_library(${CRATE_NAME} STATIC IMPORTED GLOBAL)
-
-    set_target_properties(${CRATE_NAME} PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES ${include_path}
-        IMPORTED_LOCATION ${lib}
-    )
-    add_dependencies(${CRATE_NAME} cargo_build)
-
-
-    if (BUILD_SHARED_LIBS)
-        set(PREFIXED_LIB_NAME ${CMAKE_SHARED_LIBRARY_PREFIX}${x_LIB_NAME}${CMAKE_SHARED_LIBRARY_SUFFIX})
-    else ()
-        set(PREFIXED_LIB_NAME ${CMAKE_STATIC_LIBRARY_PREFIX}${x_LIB_NAME}${CMAKE_STATIC_LIBRARY_SUFFIX})
-    endif ()
+    add_dependencies(${CRATE_NAME} "cargo_build_${CRATE_NAME}")
 
     install(
-        FILES "${CMAKE_BINARY_DIR}/${CRATE_NAME}/${CARGO_BUILD_TYPE}/${PREFIXED_LIB_NAME}"
+        FILES ${CRATE_LIB}
         DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     )
 
