@@ -17,6 +17,3 @@ rename_fields = "SnakeCase"
 
 [enum]
 rename_variants = "QualifiedScreamingSnakeCase"
-
-[parse.expand]
-features = ["cbindgen"]

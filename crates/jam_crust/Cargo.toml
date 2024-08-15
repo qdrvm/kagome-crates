@@ -1,0 +1,19 @@
+[package]
+name = "jam_crust"
+version = "0.0.1"
+edition = "2021"
+
+[lib]
+# name = "jam_crust"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+cpp = { path = "../cpp" }
+ark-ec-vrfs = { git = "https://github.com/davxy/ark-ec-vrfs", rev = "ea35e22", features = [
+  "bandersnatch",
+  "ring",
+  "parallel",
+] }
+
+[build-dependencies]
+build-helper = { path = "../build-helper" }
