@@ -11,4 +11,7 @@ build:
 	cmake . -B"$(BUILD_DIR)" -DCMAKE_INSTALL_PREFIX=install -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) ; \
 	cmake --build "$(BUILD_DIR)" -- -j$(BUILD_THREADS) ; \
 	cmake --install "$(BUILD_DIR)" 
+
+run_tests:
+	cd .ci && ./run_all_tests.sh
 	
