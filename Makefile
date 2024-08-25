@@ -14,4 +14,3 @@ build:
 
 run_tests:
 	cd .ci && ./run_all_tests.sh
-	
