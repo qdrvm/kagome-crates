@@ -1,3 +1,8 @@
 target
 /build
 /generated
+/install
+/.idea
+/build-*
+
+**/Cargo.lock
