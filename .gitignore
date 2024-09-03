@@ -4,5 +4,3 @@ target
 /install
 /.idea
 /build-*
-
-**/Cargo.lock
