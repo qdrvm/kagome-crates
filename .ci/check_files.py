@@ -1,4 +1,5 @@
 import os
+import sys
 
 required_structure = {
     'install': {
@@ -18,21 +19,34 @@ required_structure = {
     }
 }
 
+
 def check_structure(base_path, structure):
+    all_present = True
     for folder, contents in structure.items():
         current_path = os.path.join(base_path, folder)
 
         if isinstance(contents, dict):
             if not os.path.isdir(current_path):
                 print(f"Missing directory: {current_path}")
+                all_present = False
             else:
-                check_structure(current_path, contents)
+                if not check_structure(current_path, contents):
+                    all_present = False
         else:
             for file in contents:
                 file_path = os.path.join(base_path, folder, file)
                 if not os.path.isfile(file_path):
                     print(f"Missing file: {file_path}")
+                    all_present = False
+
+    return all_present
+
 
 base_path = '../'
 
-check_structure(base_path, required_structure)
+if check_structure(base_path, required_structure):
+    print("All required files and directories are present. Test passed successfully!")
+    sys.exit(0)
+else:
+    print("Some required files or directories are missing. Test failed.")
+    sys.exit(1)

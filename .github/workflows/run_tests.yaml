@@ -25,6 +25,19 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-build-
 
-      - name: Run tests
+      - name: Build test
         working-directory: .ci
-        run: bash run_all_tests.sh
+        run: bash build_test.sh
+        
+      - name: Check generated files
+        working-directory: .ci
+        run: python3 check_files.py
+        
+      - name: Run cargo tests
+        working-directory: .ci
+        run: bash cargo_tests.sh
+
+#      - name: Run tests
+#        working-directory: .ci
+#        run: bash run_all_tests.sh
+        
