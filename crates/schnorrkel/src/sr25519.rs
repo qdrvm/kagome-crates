@@ -17,7 +17,7 @@ use schnorrkel::{
 };
 use std::convert::TryInto;
 use std::fmt::{Error, Formatter};
-
+use schnorrkel::context::SigningContext;
 use crate::bitfield::CoreBitfield;
 use crate::constants::ASSIGNED_CORE_CONTEXT;
 use crate::constants::ASSIGNED_CORE_CONTEXT_V2;
@@ -1035,7 +1035,7 @@ pub unsafe extern "C" fn sr25519_vrf_verify_extra(
     sample: u32,
     vrf_pre_output: *const u8,
     vrf_proof: *const u8,
-    output_ptr: *u8,
+    output_ptr: *const u8,
 ) {
     let keypair_bytes = slice::from_raw_parts(keypair_ptr, SR25519_KEYPAIR_SIZE as usize);
     let keypair = create_from_pair(keypair_bytes);
@@ -1054,11 +1054,12 @@ pub unsafe extern "C" fn sr25519_vrf_verify_extra(
         SR25519_VRF_OUTPUT_SIZE as usize,
     ))
         .unwrap();
+    let output = SigningContext::new(SIGNING_CTX).bytes(output.as_bytes());
 
     keypair.public.vrf_verify_extra(relay_vrf_modulo_transcript(relay_vrf_story.clone(), sample),
                                     &vrf_pre_output,
                                     &vrf_proof,
-                                    &output).unwrap();
+                                    output).unwrap();
 }
 
 #[cfg(test)]
