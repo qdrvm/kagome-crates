@@ -29,7 +29,6 @@ pub use merlin::Transcript;
 use parity_scale_codec::Encode;
 use rand::{seq::SliceRandom, SeedableRng};
 use rand_chacha::ChaCha20Rng;
-use schnorrkel::context::SigningContext;
 use schnorrkel::vrf::{VRFProofBatchable, VRFSigningTranscript};
 use schnorrkel::{
     context::signing_context,
@@ -457,6 +456,13 @@ pub struct VrfResult {
     pub is_less: bool,
 }
 
+#[repr(C)]
+pub struct VrfResultExtra {
+    pub result: Sr25519SignatureResult,
+    pub input_bytes: [u8; 32],
+    pub output_bytes: [u8; 32],
+}
+
 impl VrfResult {
     fn create_err(err: &SignatureError) -> VrfResult {
         VrfResult {
@@ -534,6 +540,16 @@ impl From<Sr25519SignatureResult> for VrfResult {
         VrfResult {
             result: value,
             is_less: false,
+        }
+    }
+}
+
+impl From<Sr25519SignatureResult> for VrfResultExtra {
+    fn from(value: Sr25519SignatureResult) -> Self {
+        VrfResultExtra {
+            result: value,
+            input_bytes: [0; 32],
+            output_bytes: [0; 32],
         }
     }
 }
@@ -859,6 +875,27 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_assignments_cert_v2(
     }
 }
 
+#[allow(unused_attributes)]
+#[no_mangle]
+pub unsafe extern "C" fn sr25519_relay_vrf_modulo_core(
+    input_bytes: &[u8; 32],
+    output_bytes: &[u8; 32],
+    n_cores: u32,
+) -> u32 {
+
+    // Construct CompressedRistretto from the byte slices.
+    pub use schnorrkel::points::RistrettoBoth;
+
+    let input = RistrettoBoth::from_bytes(input_bytes).unwrap();
+    let output = RistrettoBoth::from_bytes(output_bytes).unwrap();
+
+    // Create the VRFInOut struct.
+    let vrf_in_out = VRFInOut { input, output };
+
+    // Call relay_vrf_modulo_core.
+    relay_vrf_modulo_core(&vrf_in_out, n_cores)
+}
+
 /// Clears allocated memory
 /// @param cores_out - leaving cores
 /// @param cores_out_sz - leaving cores count
@@ -1035,8 +1072,8 @@ pub unsafe extern "C" fn sr25519_vrf_verify_extra(
     sample: u32,
     vrf_pre_output: *const u8,
     vrf_proof: *const u8,
-    output_ptr: *const u8,
-) -> VrfResult {
+    transcript_data: *const Strobe128
+) -> VrfResultExtra {
     let keypair_bytes = slice::from_raw_parts(keypair_ptr, SR25519_KEYPAIR_SIZE as usize);
     let keypair = create_from_pair(keypair_bytes);
 
@@ -1049,23 +1086,20 @@ pub unsafe extern "C" fn sr25519_vrf_verify_extra(
     let vrf_proof = slice::from_raw_parts(vrf_proof, SR25519_VRF_PROOF_SIZE as usize);
     let vrf_proof = VRFProof::from_bytes(vrf_proof).unwrap();
 
-    let output = VRFOutput::from_bytes(slice::from_raw_parts(
-        output_ptr,
-        SR25519_VRF_OUTPUT_SIZE as usize,
-    ))
-    .unwrap();
-    let output = SigningContext::new(SIGNING_CTX).bytes(output.as_bytes());
+    let transcript = std::mem::transmute::<*const Strobe128, &mut Transcript>(transcript_data);
 
-    let (in_out, proof) = return_if_err!(keypair
-        .public
-        .vrf_verify_extra(
-            relay_vrf_modulo_transcript(relay_vrf_story.clone(), sample),
-            &vrf_pre_output,
-            &vrf_proof,
-            output
-        ));
+    let (in_out, proof) = return_if_err!(keypair.public.vrf_verify_extra(
+        relay_vrf_modulo_transcript(relay_vrf_story.clone(), sample),
+        &vrf_pre_output,
+        &vrf_proof,
+        transcript
+    ));
 
-    VrfResult::create_val(true)
+    VrfResultExtra {
+        result: Sr25519SignatureResult::Ok,
+        input_bytes: in_out.input.to_bytes(),
+        output_bytes: in_out.output.to_bytes(),
+    }
 }
 
 #[cfg(test)]
