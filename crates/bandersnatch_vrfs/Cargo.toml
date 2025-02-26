@@ -9,7 +9,7 @@ edition = "2021"
 cpp = { path = "../cpp" }
 bandersnatch_vrfs = { git = "https://github.com/w3f/ring-vrf", rev = "0fef826", default-features = false, features = ["substrate-curves"], optional = true }
 serde = "1.0.193"
-codec = { package = "parity-scale-codec", version = "3.6.1", default-features = false, features = ["derive", "max-encoded-len"] }
+codec = { package = "parity-scale-codec", version = "3.7", default-features = false, features = ["derive", "max-encoded-len"] }
 
 [features]
 default = ["std"]
