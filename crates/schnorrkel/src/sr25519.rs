@@ -1068,17 +1068,13 @@ pub unsafe extern "C" fn sr25519_relay_vrf_delay_assignments_cert(
 #[no_mangle]
 pub unsafe extern "C" fn sr25519_vrf_verify_extra(
     keypair_ptr: *const u8,
-    relay_vrf_story: *const RelayVRFStory,
-    sample: u32,
     vrf_pre_output: *const u8,
     vrf_proof: *const u8,
+    modulo_transcript_data: *const Strobe128,
     transcript_data: *const Strobe128
 ) -> VrfResultExtra {
     let keypair_bytes = slice::from_raw_parts(keypair_ptr, SR25519_KEYPAIR_SIZE as usize);
     let keypair = create_from_pair(keypair_bytes);
-
-    let relay_vrf_story =
-        std::mem::transmute::<*const RelayVRFStory, &RelayVRFStory>(relay_vrf_story);
 
     let vrf_pre_output = slice::from_raw_parts(vrf_pre_output, SR25519_VRF_OUTPUT_SIZE as usize);
     let vrf_pre_output = VRFOutput::from_bytes(vrf_pre_output).unwrap();
@@ -1086,10 +1082,11 @@ pub unsafe extern "C" fn sr25519_vrf_verify_extra(
     let vrf_proof = slice::from_raw_parts(vrf_proof, SR25519_VRF_PROOF_SIZE as usize);
     let vrf_proof = VRFProof::from_bytes(vrf_proof).unwrap();
 
+    let modulo_transcript = std::mem::transmute::<*const Strobe128, &mut Transcript>(modulo_transcript_data);
     let transcript = std::mem::transmute::<*const Strobe128, &mut Transcript>(transcript_data);
 
     let (in_out, proof) = return_if_err!(keypair.public.vrf_verify_extra(
-        relay_vrf_modulo_transcript(relay_vrf_story.clone(), sample),
+        modulo_transcript,
         &vrf_pre_output,
         &vrf_proof,
         transcript
