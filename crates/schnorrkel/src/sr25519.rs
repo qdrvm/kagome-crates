@@ -896,6 +896,34 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_core(
     relay_vrf_modulo_core(&vrf_in_out, n_cores)
 }
 
+#[allow(unused_attributes)]
+#[no_mangle]
+pub unsafe extern "C" fn sr25519_relay_vrf_modulo_cores(
+    input_bytes: &[u8; 32],
+    output_bytes: &[u8; 32],
+    num_samples: u32,
+    n_cores: u32,
+    cores_out: *mut *mut u32,
+    cores_out_sz: *mut usize,
+) {
+
+    // Construct CompressedRistretto from the byte slices.
+    pub use schnorrkel::points::RistrettoBoth;
+
+    let input = RistrettoBoth::from_bytes(input_bytes).unwrap();
+    let output = RistrettoBoth::from_bytes(output_bytes).unwrap();
+
+    // Create the VRFInOut struct.
+    let vrf_in_out = VRFInOut { input, output };
+
+    // Call relay_vrf_modulo_cores and get the result as Box<[u32]>
+    let result = relay_vrf_modulo_cores(&vrf_in_out, num_samples, n_cores);
+
+    // Convert Box<[u32]> to raw pointer and size
+    *cores_out_sz = result.len();
+    *cores_out = Box::into_raw(result) as *mut u32;
+}
+
 /// Clears allocated memory
 /// @param cores_out - leaving cores
 /// @param cores_out_sz - leaving cores count
