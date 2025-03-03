@@ -921,7 +921,7 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_cores(
 
     // Convert Box<[u32]> to raw pointer and size
     *cores_out_sz = result.len();
-    *cores_out = Box::into_raw(result) as *mut u32;
+    *cores_out = (*Box::<[u32]>::into_raw(result)).as_mut_ptr();
 }
 
 /// Clears allocated memory
