@@ -875,6 +875,23 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_assignments_cert_v2(
     }
 }
 
+/// Generates a single core index using VRF modulo sampling.
+///
+/// This function is used in the context of relay chain VRF to determine
+/// which core a validator is assigned to check.
+///
+/// # Arguments
+/// * `input_bytes` - 32-byte input to the VRF
+/// * `output_bytes` - 32-byte output of the VRF
+/// * `n_cores` - number of available cores
+///
+/// # Returns
+/// * `u32` - the core index
+///
+/// # Safety
+/// This function is unsafe because it operates on raw pointers. The caller must ensure:
+/// - input_bytes points to a buffer of 32 bytes
+/// - output_bytes points to a buffer of 32 bytes
 #[allow(unused_attributes)]
 #[no_mangle]
 pub unsafe extern "C" fn sr25519_relay_vrf_modulo_core(
@@ -896,6 +913,30 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_core(
     relay_vrf_modulo_core(&vrf_in_out, n_cores)
 }
 
+/// Generates a set of core indices using VRF modulo sampling.
+///
+/// This function is used in the context of relay chain VRF to determine
+/// which cores a validator is assigned to check.
+///
+/// # Arguments
+/// * `input_bytes` - 32-byte input to the VRF
+/// * `output_bytes` - 32-byte output of the VRF
+/// * `num_samples` - number of samples to generate
+/// * `n_cores` - number of available cores
+/// * `cores_out` - pointer to a buffer to hold the generated core indices
+/// * `cores_out_len` - pointer to a variable to hold the number of generated core indices
+///
+/// # Safety
+/// This function is unsafe because it operates on raw pointers. The caller must ensure:
+/// - input_bytes points to a buffer of 32 bytes
+/// - output_bytes points to a buffer of 32 bytes
+/// - cores_out points to a buffer large enough to hold num_samples CoreIndex values
+/// - cores_out_len points to a valid usize variable
+///
+/// # Memory Management
+/// The caller MUST call `sr25519_clear_assigned_cores_v2` with the same cores_out
+/// and cores_out_len values after using the generated cores to properly free
+/// the allocated memory.
 #[allow(unused_attributes)]
 #[no_mangle]
 pub unsafe extern "C" fn sr25519_relay_vrf_modulo_cores(
@@ -1092,6 +1133,25 @@ pub unsafe extern "C" fn sr25519_relay_vrf_delay_assignments_cert(
     *tranche_out = tranche;
 }
 
+/// Verifies a VRF proof with additional transcript data.
+///
+/// # Arguments
+/// * `public_key_ptr` - Pointer to the public key bytes (32 bytes)
+/// * `vrf_pre_output` - Pointer to the VRF pre-output bytes (32 bytes)
+/// * `vrf_proof` - Pointer to the VRF proof bytes (64 bytes)
+/// * `modulo_transcript_data` - Pointer to the modulo transcript data (Strobe128)
+/// * `transcript_data` - Pointer to the additional transcript data (Strobe128)
+///
+/// # Returns
+/// VrfResultExtra containing the verification result and output bytes
+///
+/// # Safety
+/// This function is unsafe because it operates on raw pointers. The caller must ensure:
+/// - All pointers are valid and point to properly allocated memory
+/// - The memory pointed to by public_key_ptr is exactly SR25519_PUBLIC_SIZE bytes
+/// - The memory pointed to by vrf_pre_output is exactly 32 bytes
+/// - The memory pointed to by vrf_proof is exactly 64 bytes
+/// - The Strobe128 pointers point to valid Strobe128 structures
 #[allow(unused_attributes)]
 #[no_mangle]
 pub unsafe extern "C" fn sr25519_vrf_verify_extra(
