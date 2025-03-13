@@ -3,21 +3,6 @@ use std::os::raw::c_ulong;
 use std::ptr;
 use std::slice;
 
-pub use merlin::Transcript;
-use parity_scale_codec::Encode;
-use rand::{seq::SliceRandom, SeedableRng};
-use rand_chacha::ChaCha20Rng;
-use schnorrkel::vrf::{VRFProofBatchable, VRFSigningTranscript};
-use schnorrkel::{
-    context::signing_context,
-    derive::{ChainCode, Derivation, CHAIN_CODE_LENGTH},
-    vrf::{VRFInOut, VRFOutput, VRFProof},
-    ExpansionMode, Keypair, MiniSecretKey, PublicKey, SecretKey, Signature, SignatureError,
-    SignatureResult,
-};
-use std::convert::TryInto;
-use std::fmt::{Error, Formatter};
-
 use crate::bitfield::CoreBitfield;
 use crate::constants::ASSIGNED_CORE_CONTEXT;
 use crate::constants::ASSIGNED_CORE_CONTEXT_V2;
@@ -40,6 +25,20 @@ use crate::constants::SR25519_VRF_PROOF_SIZE;
 use crate::constants::SR25519_VRF_RAW_OUTPUT_SIZE;
 use crate::constants::SR25519_VRF_THRESHOLD_SIZE;
 use crate::constants::TRANCHE_RANDOMNESS_CONTEXT;
+pub use merlin::Transcript;
+use parity_scale_codec::Encode;
+use rand::{seq::SliceRandom, SeedableRng};
+use rand_chacha::ChaCha20Rng;
+use schnorrkel::vrf::{VRFProofBatchable, VRFSigningTranscript};
+use schnorrkel::{
+    context::signing_context,
+    derive::{ChainCode, Derivation, CHAIN_CODE_LENGTH},
+    vrf::{VRFInOut, VRFOutput, VRFProof},
+    ExpansionMode, Keypair, MiniSecretKey, PublicKey, SecretKey, Signature, SignatureError,
+    SignatureResult,
+};
+use std::convert::TryInto;
+use std::fmt::{Error, Formatter};
 
 macro_rules! return_if_err {
     ($expr:expr) => {
@@ -457,6 +456,13 @@ pub struct VrfResult {
     pub is_less: bool,
 }
 
+#[repr(C)]
+pub struct VrfResultExtra {
+    pub result: Sr25519SignatureResult,
+    pub input_bytes: [u8; 32],
+    pub output_bytes: [u8; 32],
+}
+
 impl VrfResult {
     fn create_err(err: &SignatureError) -> VrfResult {
         VrfResult {
@@ -534,6 +540,16 @@ impl From<Sr25519SignatureResult> for VrfResult {
         VrfResult {
             result: value,
             is_less: false,
+        }
+    }
+}
+
+impl From<Sr25519SignatureResult> for VrfResultExtra {
+    fn from(value: Sr25519SignatureResult) -> Self {
+        VrfResultExtra {
+            result: value,
+            input_bytes: [0; 32],
+            output_bytes: [0; 32],
         }
     }
 }
@@ -859,6 +875,96 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_assignments_cert_v2(
     }
 }
 
+/// Generates a single core index using VRF modulo sampling.
+///
+/// This function is used in the context of relay chain VRF to determine
+/// which core a validator is assigned to check.
+///
+/// # Arguments
+/// * `input_bytes` - 32-byte input to the VRF
+/// * `output_bytes` - 32-byte output of the VRF
+/// * `n_cores` - number of available cores
+///
+/// # Returns
+/// * `u32` - the core index
+///
+/// # Safety
+/// This function is unsafe because it operates on raw pointers. The caller must ensure:
+/// - input_bytes points to a buffer of 32 bytes
+/// - output_bytes points to a buffer of 32 bytes
+#[allow(unused_attributes)]
+#[no_mangle]
+pub unsafe extern "C" fn sr25519_relay_vrf_modulo_core(
+    input_bytes: &[u8; 32],
+    output_bytes: &[u8; 32],
+    n_cores: u32,
+) -> u32 {
+
+    // Construct CompressedRistretto from the byte slices.
+    pub use schnorrkel::points::RistrettoBoth;
+
+    let input = RistrettoBoth::from_bytes(input_bytes).unwrap();
+    let output = RistrettoBoth::from_bytes(output_bytes).unwrap();
+
+    // Create the VRFInOut struct.
+    let vrf_in_out = VRFInOut { input, output };
+
+    // Call relay_vrf_modulo_core.
+    relay_vrf_modulo_core(&vrf_in_out, n_cores)
+}
+
+/// Generates a set of core indices using VRF modulo sampling.
+///
+/// This function is used in the context of relay chain VRF to determine
+/// which cores a validator is assigned to check.
+///
+/// # Arguments
+/// * `input_bytes` - 32-byte input to the VRF
+/// * `output_bytes` - 32-byte output of the VRF
+/// * `num_samples` - number of samples to generate
+/// * `n_cores` - number of available cores
+/// * `cores_out` - pointer to a buffer to hold the generated core indices
+/// * `cores_out_len` - pointer to a variable to hold the number of generated core indices
+///
+/// # Safety
+/// This function is unsafe because it operates on raw pointers. The caller must ensure:
+/// - input_bytes points to a buffer of 32 bytes
+/// - output_bytes points to a buffer of 32 bytes
+/// - cores_out points to a buffer large enough to hold num_samples CoreIndex values
+/// - cores_out_len points to a valid usize variable
+///
+/// # Memory Management
+/// The caller MUST call `sr25519_clear_assigned_cores_v2` with the same cores_out
+/// and cores_out_len values after using the generated cores to properly free
+/// the allocated memory.
+#[allow(unused_attributes)]
+#[no_mangle]
+pub unsafe extern "C" fn sr25519_relay_vrf_modulo_cores(
+    input_bytes: &[u8; 32],
+    output_bytes: &[u8; 32],
+    num_samples: u32,
+    n_cores: u32,
+    cores_out: *mut *mut u32,
+    cores_out_sz: *mut usize,
+) {
+
+    // Construct CompressedRistretto from the byte slices.
+    pub use schnorrkel::points::RistrettoBoth;
+
+    let input = RistrettoBoth::from_bytes(input_bytes).unwrap();
+    let output = RistrettoBoth::from_bytes(output_bytes).unwrap();
+
+    // Create the VRFInOut struct.
+    let vrf_in_out = VRFInOut { input, output };
+
+    // Call relay_vrf_modulo_cores and get the result as Box<[u32]>
+    let result = relay_vrf_modulo_cores(&vrf_in_out, num_samples, n_cores);
+
+    // Convert Box<[u32]> to raw pointer and size
+    *cores_out_sz = result.len();
+    *cores_out = (*Box::<[u32]>::into_raw(result)).as_mut_ptr();
+}
+
 /// Clears allocated memory
 /// @param cores_out - leaving cores
 /// @param cores_out_sz - leaving cores count
@@ -1025,6 +1131,59 @@ pub unsafe extern "C" fn sr25519_relay_vrf_delay_assignments_cert(
     cert_output.data = *vrf_in_out.as_output_bytes();
     cert_proof.data = vrf_proof.to_bytes();
     *tranche_out = tranche;
+}
+
+/// Verifies a VRF proof with additional transcript data.
+///
+/// # Arguments
+/// * `public_key_ptr` - Pointer to the public key bytes (32 bytes)
+/// * `vrf_pre_output` - Pointer to the VRF pre-output bytes (32 bytes)
+/// * `vrf_proof` - Pointer to the VRF proof bytes (64 bytes)
+/// * `modulo_transcript_data` - Pointer to the modulo transcript data (Strobe128)
+/// * `transcript_data` - Pointer to the additional transcript data (Strobe128)
+///
+/// # Returns
+/// VrfResultExtra containing the verification result and output bytes
+///
+/// # Safety
+/// This function is unsafe because it operates on raw pointers. The caller must ensure:
+/// - All pointers are valid and point to properly allocated memory
+/// - The memory pointed to by public_key_ptr is exactly SR25519_PUBLIC_SIZE bytes
+/// - The memory pointed to by vrf_pre_output is exactly 32 bytes
+/// - The memory pointed to by vrf_proof is exactly 64 bytes
+/// - The Strobe128 pointers point to valid Strobe128 structures
+#[allow(unused_attributes)]
+#[no_mangle]
+pub unsafe extern "C" fn sr25519_vrf_verify_extra(
+    public_key_ptr: *const u8,
+    vrf_pre_output: *const u8,
+    vrf_proof: *const u8,
+    modulo_transcript_data: *const Strobe128,
+    transcript_data: *const Strobe128
+) -> VrfResultExtra {
+    let public_key = create_public(slice::from_raw_parts(public_key_ptr, SR25519_PUBLIC_SIZE as usize));
+
+    let vrf_pre_output = slice::from_raw_parts(vrf_pre_output, SR25519_VRF_OUTPUT_SIZE as usize);
+    let vrf_pre_output = VRFOutput::from_bytes(vrf_pre_output).unwrap();
+
+    let vrf_proof = slice::from_raw_parts(vrf_proof, SR25519_VRF_PROOF_SIZE as usize);
+    let vrf_proof = VRFProof::from_bytes(vrf_proof).unwrap();
+
+    let modulo_transcript = std::mem::transmute::<*const Strobe128, &mut Transcript>(modulo_transcript_data);
+    let transcript = std::mem::transmute::<*const Strobe128, &mut Transcript>(transcript_data);
+
+    let (in_out, proof) = return_if_err!(public_key.vrf_verify_extra(
+        modulo_transcript,
+        &vrf_pre_output,
+        &vrf_proof,
+        transcript
+    ));
+
+    VrfResultExtra {
+        result: Sr25519SignatureResult::Ok,
+        input_bytes: in_out.input.to_bytes(),
+        output_bytes: in_out.output.to_bytes(),
+    }
 }
 
 #[cfg(test)]
