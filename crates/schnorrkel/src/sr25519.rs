@@ -899,7 +899,6 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_core(
     output_bytes: &[u8; 32],
     n_cores: u32,
 ) -> u32 {
-
     // Construct CompressedRistretto from the byte slices.
     pub use schnorrkel::points::RistrettoBoth;
 
@@ -947,7 +946,6 @@ pub unsafe extern "C" fn sr25519_relay_vrf_modulo_cores(
     cores_out: *mut *mut u32,
     cores_out_sz: *mut usize,
 ) {
-
     // Construct CompressedRistretto from the byte slices.
     pub use schnorrkel::points::RistrettoBoth;
 
@@ -1161,7 +1159,10 @@ pub unsafe extern "C" fn sr25519_vrf_verify_extra(
     modulo_transcript_data: *const Strobe128,
     transcript_data: *const Strobe128
 ) -> VrfResultExtra {
-    let public_key = create_public(slice::from_raw_parts(public_key_ptr, SR25519_PUBLIC_SIZE as usize));
+    let public_key = return_if_err!(schnorrkel::PublicKey::from_bytes(slice::from_raw_parts(
+        public_key_ptr,
+        SR25519_PUBLIC_SIZE as usize
+    )));
 
     let vrf_pre_output = slice::from_raw_parts(vrf_pre_output, SR25519_VRF_OUTPUT_SIZE as usize);
     let vrf_pre_output = VRFOutput::from_bytes(vrf_pre_output).unwrap();
@@ -1169,7 +1170,8 @@ pub unsafe extern "C" fn sr25519_vrf_verify_extra(
     let vrf_proof = slice::from_raw_parts(vrf_proof, SR25519_VRF_PROOF_SIZE as usize);
     let vrf_proof = VRFProof::from_bytes(vrf_proof).unwrap();
 
-    let modulo_transcript = std::mem::transmute::<*const Strobe128, &mut Transcript>(modulo_transcript_data);
+    let modulo_transcript =
+        std::mem::transmute::<*const Strobe128, &mut Transcript>(modulo_transcript_data);
     let transcript = std::mem::transmute::<*const Strobe128, &mut Transcript>(transcript_data);
 
     let (in_out, proof) = return_if_err!(public_key.vrf_verify_extra(
