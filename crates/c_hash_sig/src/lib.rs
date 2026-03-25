@@ -380,6 +380,21 @@ pub extern "C" fn pq_error_description(error: PQSigningError) -> *const c_char {
 // Serialization functions
 // ============================================================================
 
+#[no_mangle]
+pub unsafe extern "C" fn pq_secret_key_to_bytes(secret_key: *const PQSecretKey) -> PQByteVec {
+    let bytes = Opaque::arg(secret_key).as_ssz_bytes();
+    PQByteVec::new(&bytes)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pq_secret_key_from_bytes(
+    bytes_ptr: *const c_uchar,
+    bytes_size: usize,
+    secret_key_out: *mut *mut PQSecretKey,
+) -> PQSigningError {
+    from_bytes(from_raw_parts(bytes_ptr, bytes_size), secret_key_out)
+}
+
 /// Serialize public key to bytes
 ///
 /// # Parameters
