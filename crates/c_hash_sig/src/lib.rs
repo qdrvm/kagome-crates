@@ -4,34 +4,33 @@ use cpp::Opaque;
 use ssz::{Decode, Encode};
 use std::ops::Range;
 use std::os::raw::{c_char, c_int, c_uchar};
+use std::sync::Once;
 
-#[cfg(test)]
-mod scheme_impl {
-    use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_8::SIGTopLevelTargetSumLifetime8Dim64Base8;
-
-    pub type SignatureSchemeType = SIGTopLevelTargetSumLifetime8Dim64Base8;
-    pub const PQ_SIGNATURE_SIZE: usize = 2344;
+// Production config (default)
+mod config {
+    // From leansig (verification + types)
+    pub use leansig::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::{
+        PubKeyAbortingTargetSumLifetime32Dim46Base8 as XmssPublicKey,
+        SchemeAbortingTargetSumLifetime32Dim46Base8 as LeanSigScheme,
+        SigAbortingTargetSumLifetime32Dim46Base8 as XmssSignature,
+    };
+    // From leansig_fast_keygen (keygen + signing)
+    pub use leansig_fast_keygen::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::{
+        SchemeAbortingTargetSumLifetime32Dim46Base8 as FastKeyGenScheme,
+        SecretKeyAbortingTargetSumLifetime32Dim46Base8 as FastKeyGenSecretKey,
+    };
+    pub const PQ_SIGNATURE_SIZE: usize = 2536;
 }
 
-#[cfg(not(test))]
-mod scheme_impl {
-    use leansig::signature::generalized_xmss::instantiations_poseidon_top_level::lifetime_2_to_the_32::hashing_optimized::SIGTopLevelTargetSumLifetime32Dim64Base8;
-
-    pub type SignatureSchemeType = SIGTopLevelTargetSumLifetime32Dim64Base8;
-    pub const PQ_SIGNATURE_SIZE: usize = 3112;
-}
-
-use scheme_impl::SignatureSchemeType;
-pub use scheme_impl::PQ_SIGNATURE_SIZE;
+pub use config::PQ_SIGNATURE_SIZE;
+use config::*;
 
 use leansig::serialization::Serializable;
-use leansig::signature::{SignatureScheme, SignatureSchemeSecretKey};
+use leansig::signature::SignatureScheme;
 use leansig::MESSAGE_LENGTH;
-
-// Type aliases for convenience
-type PublicKeyType = <SignatureSchemeType as SignatureScheme>::PublicKey;
-type SecretKeyType = <SignatureSchemeType as SignatureScheme>::SecretKey;
-type SignatureType = <SignatureSchemeType as SignatureScheme>::Signature;
+use leansig_fast_keygen::serialization::Serializable as FastKeyGenSerializable;
+use leansig_fast_keygen::signature::SignatureScheme as FastKeyGenSignatureScheme;
+use leansig_fast_keygen::signature::SignatureSchemeSecretKey;
 
 pub const PQ_PUBLIC_KEY_SIZE: usize = 52;
 pub const PQ_MESSAGE_SIZE: usize = 32; // cbindgen bug, MESSAGE_LENGTH
@@ -39,19 +38,19 @@ pub const PQ_MESSAGE_SIZE: usize = 32; // cbindgen bug, MESSAGE_LENGTH
 /// Opaque type for secret key
 pub struct PQSecretKey;
 impl Opaque for PQSecretKey {
-    type Type = SecretKeyType;
+    type Type = FastKeyGenSecretKey;
 }
 
 /// Opaque type for public key
 pub struct PQPublicKey;
 impl Opaque for PQPublicKey {
-    type Type = PublicKeyType;
+    type Type = XmssPublicKey;
 }
 
 /// Opaque type for signature
 pub struct PQSignature;
 impl Opaque for PQSignature {
-    type Type = SignatureType;
+    type Type = XmssSignature;
 }
 
 /// Range representation for C
@@ -109,6 +108,34 @@ impl PQByteVec {
 #[no_mangle]
 pub unsafe extern "C" fn PQByteVec_drop(bytes: PQByteVec) {
     drop(Vec::from_raw_parts(bytes.ptr, bytes.size, bytes.size))
+}
+
+#[repr(C)]
+pub struct PQChildProof {
+    pub proof_ptr: *const c_uchar,
+    pub proof_size: usize,
+    pub public_keys_bytes_ptr: *const *const c_uchar,
+    pub public_keys_count: usize,
+}
+
+static PROVER_INIT: Once = Once::new();
+static VERIFIER_INIT: Once = Once::new();
+
+#[no_mangle]
+pub extern "C" fn pq_setup_prover() {
+    PROVER_INIT.call_once(|| {
+        rec_aggregation::init_aggregation_bytecode();
+        backend::precompute_dft_twiddles::<backend::KoalaBear>(1 << 24);
+    });
+}
+
+/// Initialize the verifier (idempotent - only runs once)
+/// This is safe to call multiple times; setup only happens on first call.
+#[no_mangle]
+pub extern "C" fn pq_setup_verifier() {
+    VERIFIER_INIT.call_once(|| {
+        rec_aggregation::init_aggregation_bytecode();
+    });
 }
 
 /// Convert message from byte slice to byte array.
@@ -244,7 +271,7 @@ pub unsafe extern "C" fn pq_advance_preparation(secret_key: *mut PQSecretKey) {
 /// Get maximum lifetime of signature scheme
 #[no_mangle]
 pub extern "C" fn pq_get_lifetime() -> u64 {
-    SignatureSchemeType::LIFETIME
+    FastKeyGenScheme::LIFETIME
 }
 
 /// Generate key pair (public and secret)
@@ -273,7 +300,8 @@ pub unsafe extern "C" fn pq_key_gen(
 
     let mut rng = rand::rng();
     let (public_key, secret_key) =
-        SignatureSchemeType::key_gen(&mut rng, activation_epoch, num_active_epochs);
+        FastKeyGenScheme::key_gen(&mut rng, activation_epoch, num_active_epochs);
+    let public_key = XmssPublicKey::from_bytes(&public_key.to_bytes()).unwrap();
     *public_key_out = Opaque::leak(public_key);
     *secret_key_out = Opaque::leak(secret_key);
     PQSigningError::Success
@@ -304,12 +332,13 @@ pub unsafe extern "C" fn pq_sign(
     }
     let secret_key = Opaque::arg(secret_key);
     let message = get_message(message);
-    match SignatureSchemeType::sign(&secret_key, epoch, &message) {
+    match FastKeyGenScheme::sign(&secret_key, epoch, &message) {
         Ok(signature) => {
+            let signature = XmssSignature::from_ssz_bytes(&signature.as_ssz_bytes()).unwrap();
             *signature_out = Opaque::leak(signature);
             PQSigningError::Success
         }
-        Err(leansig::signature::SigningError::EncodingAttemptsExceeded { .. }) => {
+        Err(leansig_fast_keygen::signature::SigningError::EncodingAttemptsExceeded { .. }) => {
             PQSigningError::EncodingAttemptsExceeded
         }
     }
@@ -343,7 +372,7 @@ pub unsafe extern "C" fn pq_verify(
     let signature = Opaque::arg(signature);
     let message = get_message(message);
 
-    let is_valid = SignatureSchemeType::verify(&public_key, epoch, &message, &signature);
+    let is_valid = LeanSigScheme::verify(&public_key, epoch, &message, &signature);
 
     if is_valid {
         1
@@ -392,6 +421,19 @@ pub unsafe extern "C" fn pq_secret_key_from_bytes(
     bytes_size: usize,
     secret_key_out: *mut *mut PQSecretKey,
 ) -> PQSigningError {
+    unsafe fn from_bytes<T: Opaque<Type = impl FastKeyGenSerializable>>(
+        bytes: &[u8],
+        value_out: *mut *mut T,
+    ) -> PQSigningError {
+        if value_out.is_null() {
+            return PQSigningError::InvalidPointer;
+        }
+        let Ok(value) = T::Type::from_bytes(bytes) else {
+            return PQSigningError::UnknownError;
+        };
+        *value_out = Opaque::leak(value);
+        PQSigningError::Success
+    }
     from_bytes(from_raw_parts(bytes_ptr, bytes_size), secret_key_out)
 }
 
@@ -524,12 +566,31 @@ pub unsafe extern "C" fn pq_secret_key_from_json(
     json_size: usize,
     secret_key_out: *mut *mut PQSecretKey,
 ) -> PQSigningError {
+    unsafe fn from_json<T: Opaque<Type = impl FastKeyGenSerializable>>(
+        json_ptr: *const c_uchar,
+        json_size: usize,
+        value_out: *mut *mut T,
+    ) -> PQSigningError {
+        if json_ptr.is_null() || value_out.is_null() {
+            return PQSigningError::InvalidPointer;
+        }
+        let json = from_raw_parts(json_ptr, json_size);
+        let Ok(value) = serde_json::from_slice::<T::Type>(json) else {
+            return PQSigningError::UnknownError;
+        };
+        *value_out = Opaque::leak(value);
+        PQSigningError::Success
+    }
     from_json(json_ptr, json_size, secret_key_out)
 }
 
 /// Encode secret key to json
 #[no_mangle]
 pub unsafe extern "C" fn pq_secret_key_to_json(secret_key: *const PQSecretKey) -> PQByteVec {
+    fn to_json<T: FastKeyGenSerializable>(value: &T) -> PQByteVec {
+        let json = serde_json::to_string(value).unwrap();
+        PQByteVec::new(json.as_ref())
+    }
     to_json(Opaque::arg(secret_key))
 }
 
@@ -541,27 +602,62 @@ pub unsafe extern "C" fn pq_public_key_to_json(public_key: *const PQPublicKey) -
 
 #[no_mangle]
 pub unsafe extern "C" fn pq_aggregate_signatures(
+    children_ptr: *const PQChildProof,
+    children_size: usize,
     signature_count: usize,
     public_keys_bytes_ptr: *const *const u8,
     signatures_bytes_ptr: *const *const u8,
     epoch: u32,
     message: *const u8,
+    log_inv_rate: usize,
 ) -> PQByteVec {
-    let public_keys = many_from_bytes::<PublicKeyType>(
+    let children_public_keys: Vec<_> = from_raw_parts(children_ptr, children_size)
+        .into_iter()
+        .map(|child| {
+            many_from_bytes::<XmssPublicKey>(
+                child.public_keys_bytes_ptr,
+                child.public_keys_count,
+                PQ_PUBLIC_KEY_SIZE,
+            )
+            .unwrap()
+        })
+        .collect();
+    let children_proofs: Vec<_> = from_raw_parts(children_ptr, children_size)
+        .into_iter()
+        .map(|child| {
+            rec_aggregation::AggregatedXMSS::deserialize(from_raw_parts(
+                child.proof_ptr,
+                child.proof_size,
+            ))
+            .unwrap()
+        })
+        .collect();
+    let public_keys = many_from_bytes::<XmssPublicKey>(
         public_keys_bytes_ptr,
         signature_count,
         PQ_PUBLIC_KEY_SIZE,
     )
     .unwrap();
     let signatures =
-        many_from_bytes::<SignatureType>(signatures_bytes_ptr, signature_count, PQ_SIGNATURE_SIZE)
+        many_from_bytes::<XmssSignature>(signatures_bytes_ptr, signature_count, PQ_SIGNATURE_SIZE)
             .unwrap();
     let message = get_message(message);
-    let aggregated_signature =
-        lean_multisig::xmss_aggregate_signatures(&public_keys, &signatures, &message, epoch)
-            .unwrap();
+    let (_, aggregated_signature) = rec_aggregation::xmss_aggregate(
+        &children_public_keys
+            .iter()
+            .map(|public_keys| &public_keys[..])
+            .zip(children_proofs.into_iter())
+            .collect::<Vec<_>>(),
+        public_keys
+            .into_iter()
+            .zip(signatures.into_iter())
+            .collect(),
+        &message,
+        epoch,
+        log_inv_rate,
+    );
 
-    let aggregated_signature_bytes = aggregated_signature.as_ssz_bytes();
+    let aggregated_signature_bytes = aggregated_signature.serialize();
 
     PQByteVec::new(&aggregated_signature_bytes)
 }
@@ -575,7 +671,7 @@ pub unsafe extern "C" fn pq_verify_aggregated_signatures(
     aggregated_signatures_ptr: *const u8,
     aggregated_signatures_size: usize,
 ) -> bool {
-    let public_keys = many_from_bytes::<PublicKeyType>(
+    let public_keys = many_from_bytes::<XmssPublicKey>(
         public_keys_bytes_ptr,
         signature_count,
         PQ_PUBLIC_KEY_SIZE,
@@ -585,20 +681,14 @@ pub unsafe extern "C" fn pq_verify_aggregated_signatures(
     let aggregated_signature_bytes =
         from_raw_parts(aggregated_signatures_ptr, aggregated_signatures_size);
 
-    let aggregated_signature = match lean_multisig::Devnet2XmssAggregateSignature::from_ssz_bytes(
-        aggregated_signature_bytes,
-    ) {
-        Ok(aggregated_signature) => aggregated_signature,
-        _ => return false,
-    };
+    let aggregated_signature =
+        match rec_aggregation::AggregatedXMSS::deserialize(aggregated_signature_bytes) {
+            Some(aggregated_signature) => aggregated_signature,
+            _ => return false,
+        };
 
-    lean_multisig::xmss_verify_aggregated_signatures(
-        &public_keys,
-        &message,
-        &aggregated_signature,
-        epoch,
-    )
-    .is_ok()
+    rec_aggregation::xmss_verify_aggregation(public_keys, &aggregated_signature, &message, epoch)
+        .is_ok()
 }
 
 #[cfg(test)]
