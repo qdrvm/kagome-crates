@@ -8,16 +8,11 @@ use std::sync::Once;
 
 // Production config (default)
 mod config {
-    // From leansig (verification + types)
     pub use leansig::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::{
         PubKeyAbortingTargetSumLifetime32Dim46Base8 as XmssPublicKey,
-        SchemeAbortingTargetSumLifetime32Dim46Base8 as LeanSigScheme,
+        SchemeAbortingTargetSumLifetime32Dim46Base8 as XmssScheme,
+        SecretKeyAbortingTargetSumLifetime32Dim46Base8 as XmssSecretKey,
         SigAbortingTargetSumLifetime32Dim46Base8 as XmssSignature,
-    };
-    // From leansig_fast_keygen (keygen + signing)
-    pub use leansig_fast_keygen::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::{
-        SchemeAbortingTargetSumLifetime32Dim46Base8 as FastKeyGenScheme,
-        SecretKeyAbortingTargetSumLifetime32Dim46Base8 as FastKeyGenSecretKey,
     };
     pub const PQ_SIGNATURE_SIZE: usize = 2536;
 }
@@ -27,10 +22,8 @@ use config::*;
 
 use leansig::serialization::Serializable;
 use leansig::signature::SignatureScheme;
+use leansig::signature::SignatureSchemeSecretKey;
 use leansig::MESSAGE_LENGTH;
-use leansig_fast_keygen::serialization::Serializable as FastKeyGenSerializable;
-use leansig_fast_keygen::signature::SignatureScheme as FastKeyGenSignatureScheme;
-use leansig_fast_keygen::signature::SignatureSchemeSecretKey;
 
 pub const PQ_PUBLIC_KEY_SIZE: usize = 52;
 pub const PQ_MESSAGE_SIZE: usize = 32; // cbindgen bug, MESSAGE_LENGTH
@@ -38,7 +31,7 @@ pub const PQ_MESSAGE_SIZE: usize = 32; // cbindgen bug, MESSAGE_LENGTH
 /// Opaque type for secret key
 pub struct PQSecretKey;
 impl Opaque for PQSecretKey {
-    type Type = FastKeyGenSecretKey;
+    type Type = XmssSecretKey;
 }
 
 /// Opaque type for public key
@@ -271,7 +264,7 @@ pub unsafe extern "C" fn pq_advance_preparation(secret_key: *mut PQSecretKey) {
 /// Get maximum lifetime of signature scheme
 #[no_mangle]
 pub extern "C" fn pq_get_lifetime() -> u64 {
-    FastKeyGenScheme::LIFETIME
+    XmssScheme::LIFETIME
 }
 
 /// Generate key pair (public and secret)
@@ -300,7 +293,7 @@ pub unsafe extern "C" fn pq_key_gen(
 
     let mut rng = rand::rng();
     let (public_key, secret_key) =
-        FastKeyGenScheme::key_gen(&mut rng, activation_epoch, num_active_epochs);
+        XmssScheme::key_gen(&mut rng, activation_epoch, num_active_epochs);
     let public_key = XmssPublicKey::from_bytes(&public_key.to_bytes()).unwrap();
     *public_key_out = Opaque::leak(public_key);
     *secret_key_out = Opaque::leak(secret_key);
@@ -332,13 +325,13 @@ pub unsafe extern "C" fn pq_sign(
     }
     let secret_key = Opaque::arg(secret_key);
     let message = get_message(message);
-    match FastKeyGenScheme::sign(&secret_key, epoch, &message) {
+    match XmssScheme::sign(&secret_key, epoch, &message) {
         Ok(signature) => {
             let signature = XmssSignature::from_ssz_bytes(&signature.as_ssz_bytes()).unwrap();
             *signature_out = Opaque::leak(signature);
             PQSigningError::Success
         }
-        Err(leansig_fast_keygen::signature::SigningError::EncodingAttemptsExceeded { .. }) => {
+        Err(leansig::signature::SigningError::EncodingAttemptsExceeded { .. }) => {
             PQSigningError::EncodingAttemptsExceeded
         }
     }
@@ -372,7 +365,7 @@ pub unsafe extern "C" fn pq_verify(
     let signature = Opaque::arg(signature);
     let message = get_message(message);
 
-    let is_valid = LeanSigScheme::verify(&public_key, epoch, &message, &signature);
+    let is_valid = XmssScheme::verify(&public_key, epoch, &message, &signature);
 
     if is_valid {
         1
@@ -421,19 +414,6 @@ pub unsafe extern "C" fn pq_secret_key_from_bytes(
     bytes_size: usize,
     secret_key_out: *mut *mut PQSecretKey,
 ) -> PQSigningError {
-    unsafe fn from_bytes<T: Opaque<Type = impl FastKeyGenSerializable>>(
-        bytes: &[u8],
-        value_out: *mut *mut T,
-    ) -> PQSigningError {
-        if value_out.is_null() {
-            return PQSigningError::InvalidPointer;
-        }
-        let Ok(value) = T::Type::from_bytes(bytes) else {
-            return PQSigningError::UnknownError;
-        };
-        *value_out = Opaque::leak(value);
-        PQSigningError::Success
-    }
     from_bytes(from_raw_parts(bytes_ptr, bytes_size), secret_key_out)
 }
 
@@ -566,31 +546,12 @@ pub unsafe extern "C" fn pq_secret_key_from_json(
     json_size: usize,
     secret_key_out: *mut *mut PQSecretKey,
 ) -> PQSigningError {
-    unsafe fn from_json<T: Opaque<Type = impl FastKeyGenSerializable>>(
-        json_ptr: *const c_uchar,
-        json_size: usize,
-        value_out: *mut *mut T,
-    ) -> PQSigningError {
-        if json_ptr.is_null() || value_out.is_null() {
-            return PQSigningError::InvalidPointer;
-        }
-        let json = from_raw_parts(json_ptr, json_size);
-        let Ok(value) = serde_json::from_slice::<T::Type>(json) else {
-            return PQSigningError::UnknownError;
-        };
-        *value_out = Opaque::leak(value);
-        PQSigningError::Success
-    }
     from_json(json_ptr, json_size, secret_key_out)
 }
 
 /// Encode secret key to json
 #[no_mangle]
 pub unsafe extern "C" fn pq_secret_key_to_json(secret_key: *const PQSecretKey) -> PQByteVec {
-    fn to_json<T: FastKeyGenSerializable>(value: &T) -> PQByteVec {
-        let json = serde_json::to_string(value).unwrap();
-        PQByteVec::new(json.as_ref())
-    }
     to_json(Opaque::arg(secret_key))
 }
 
