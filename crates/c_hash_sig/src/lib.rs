@@ -1,6 +1,8 @@
 use cpp::from_raw_parts;
 use cpp::from_raw_parts_mut;
 use cpp::Opaque;
+use lean_multisig::TypeOneMultiSignature;
+use lean_multisig::TypeTwoMultiSignature;
 use ssz::{Decode, Encode};
 use std::ops::Range;
 use std::os::raw::{c_char, c_int, c_uchar};
@@ -10,7 +12,7 @@ use std::sync::Once;
 mod config {
     pub use leansig::signature::generalized_xmss::instantiations_aborting::lifetime_2_to_the_32::{
         PubKeyAbortingTargetSumLifetime32Dim46Base8 as XmssPublicKey,
-        SchemeAbortingTargetSumLifetime32Dim46Base8 as XmssScheme,
+        SIGAbortingTargetSumLifetime32Dim46Base8 as XmssScheme,
         SecretKeyAbortingTargetSumLifetime32Dim46Base8 as XmssSecretKey,
         SigAbortingTargetSumLifetime32Dim46Base8 as XmssSignature,
     };
@@ -27,6 +29,8 @@ use leansig::MESSAGE_LENGTH;
 
 pub const PQ_PUBLIC_KEY_SIZE: usize = 52;
 pub const PQ_MESSAGE_SIZE: usize = 32; // cbindgen bug, MESSAGE_LENGTH
+
+type Message = [u8; MESSAGE_LENGTH];
 
 /// Opaque type for secret key
 pub struct PQSecretKey;
@@ -111,29 +115,49 @@ pub struct PQChildProof {
     pub public_keys_count: usize,
 }
 
-static PROVER_INIT: Once = Once::new();
-static VERIFIER_INIT: Once = Once::new();
+static INIT: Once = Once::new();
 
 #[no_mangle]
-pub extern "C" fn pq_setup_prover() {
-    PROVER_INIT.call_once(|| {
-        rec_aggregation::init_aggregation_bytecode();
-        backend::precompute_dft_twiddles::<backend::KoalaBear>(1 << 24);
-    });
-}
-
-/// Initialize the verifier (idempotent - only runs once)
-/// This is safe to call multiple times; setup only happens on first call.
-#[no_mangle]
-pub extern "C" fn pq_setup_verifier() {
-    VERIFIER_INIT.call_once(|| {
-        rec_aggregation::init_aggregation_bytecode();
+pub extern "C" fn pq_init() {
+    INIT.call_once(|| {
+        lean_multisig::setup_verifier();
+        lean_multisig::setup_prover();
     });
 }
 
 /// Convert message from byte slice to byte array.
 unsafe fn get_message(message: *const u8) -> [u8; MESSAGE_LENGTH] {
     from_raw_parts(message, MESSAGE_LENGTH).try_into().unwrap()
+}
+
+unsafe fn arg_public_key_vec(count: usize, ptr: *const *const u8) -> Vec<XmssPublicKey> {
+    many_from_bytes(ptr, count, PQ_PUBLIC_KEY_SIZE).unwrap()
+}
+
+unsafe fn arg_public_key_vec_vec(
+    count: usize,
+    ptr_ptr: *const *const *const u8,
+    count_ptr: *const usize,
+) -> Vec<Vec<XmssPublicKey>> {
+    from_raw_parts(ptr_ptr, count)
+        .iter()
+        .zip(from_raw_parts(count_ptr, count))
+        .map(|(ptr, count)| arg_public_key_vec(*count, *ptr))
+        .collect()
+}
+
+unsafe fn arg_type_2(
+    type_2_ptr: *const u8,
+    type_2_size: usize,
+    type_1_count: usize,
+    public_keys_ptrs: *const *const *const u8,
+    public_keys_counts: *const usize,
+) -> TypeTwoMultiSignature {
+    let type_2 = from_raw_parts(type_2_ptr, type_2_size);
+    let public_keys = arg_public_key_vec_vec(type_1_count, public_keys_ptrs, public_keys_counts);
+    let type_2 = type_2.strip_prefix(&TYPE_2_PREFIX).expect("TYPE_2_PREFIX");
+    TypeTwoMultiSignature::decompress_without_pubkeys(&type_2, public_keys)
+        .expect("TypeTwoMultiSignature::decompress_without_pubkeys")
 }
 
 /// Encode value to json.
@@ -585,11 +609,12 @@ pub unsafe extern "C" fn pq_aggregate_signatures(
         .collect();
     let children_proofs: Vec<_> = from_raw_parts(children_ptr, children_size)
         .into_iter()
-        .map(|child| {
-            rec_aggregation::AggregatedXMSS::deserialize(from_raw_parts(
-                child.proof_ptr,
-                child.proof_size,
-            ))
+        .zip(children_public_keys)
+        .map(|(child, public_keys)| {
+            TypeOneMultiSignature::decompress_without_pubkeys(
+                from_raw_parts(child.proof_ptr, child.proof_size),
+                public_keys,
+            )
             .unwrap()
         })
         .collect();
@@ -603,22 +628,19 @@ pub unsafe extern "C" fn pq_aggregate_signatures(
         many_from_bytes::<XmssSignature>(signatures_bytes_ptr, signature_count, PQ_SIGNATURE_SIZE)
             .unwrap();
     let message = get_message(message);
-    let (_, aggregated_signature) = rec_aggregation::xmss_aggregate(
-        &children_public_keys
-            .iter()
-            .map(|public_keys| &public_keys[..])
-            .zip(children_proofs.into_iter())
-            .collect::<Vec<_>>(),
+    let aggregated_signature = lean_multisig::aggregate_type_1(
+        &children_proofs,
         public_keys
             .into_iter()
             .zip(signatures.into_iter())
             .collect(),
-        &message,
+        message,
         epoch,
         log_inv_rate,
-    );
+    )
+    .unwrap();
 
-    let aggregated_signature_bytes = aggregated_signature.serialize();
+    let aggregated_signature_bytes = aggregated_signature.compress_without_pubkeys();
 
     PQByteVec::new(&aggregated_signature_bytes)
 }
@@ -641,15 +663,94 @@ pub unsafe extern "C" fn pq_verify_aggregated_signatures(
     let message = get_message(message);
     let aggregated_signature_bytes =
         from_raw_parts(aggregated_signatures_ptr, aggregated_signatures_size);
+    let type_1 = match TypeOneMultiSignature::decompress_without_pubkeys(
+        aggregated_signature_bytes,
+        public_keys,
+    ) {
+        Some(type_1) => type_1,
+        _ => return false,
+    };
+    if type_1.info.without_pubkeys.slot != epoch || type_1.info.without_pubkeys.message != message {
+        return false;
+    }
+    lean_multisig::verify_type_1(&type_1).is_ok()
+}
 
-    let aggregated_signature =
-        match rec_aggregation::AggregatedXMSS::deserialize(aggregated_signature_bytes) {
-            Some(aggregated_signature) => aggregated_signature,
-            _ => return false,
-        };
+const TYPE_2_PREFIX: [u8; 4] = 4u32.to_le_bytes();
 
-    rec_aggregation::xmss_verify_aggregation(public_keys, &aggregated_signature, &message, epoch)
-        .is_ok()
+#[no_mangle]
+pub unsafe extern "C" fn pq_aggregate_type_two(
+    type_1_count: usize,
+    public_keys_ptrs: *const *const *const u8,
+    public_keys_counts: *const usize,
+    type_1_ptrs: *const *const u8,
+    type_1_sizes: *const usize,
+    log_inv_rate: usize,
+) -> PQByteVec {
+    let public_keys = arg_public_key_vec_vec(type_1_count, public_keys_ptrs, public_keys_counts);
+    let types_1: Vec<_> = from_raw_parts(type_1_ptrs, type_1_count)
+        .iter()
+        .zip(from_raw_parts(type_1_sizes, type_1_count))
+        .map(|(ptr, size)| from_raw_parts(*ptr, *size))
+        .zip(public_keys)
+        .map(|(type_1, public_keys)| {
+            TypeOneMultiSignature::decompress_without_pubkeys(type_1, public_keys).unwrap()
+        })
+        .collect();
+    let type_2 = lean_multisig::merge_many_type_1(types_1, log_inv_rate).unwrap();
+    let type_2_inner = type_2.compress_without_pubkeys();
+    let mut type_2_outer = vec![];
+    type_2_outer.extend_from_slice(&TYPE_2_PREFIX);
+    type_2_outer.extend_from_slice(&type_2_inner);
+    PQByteVec::new(&type_2_outer)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pq_verify_type_two(
+    type_2_ptr: *const u8,
+    type_2_size: usize,
+    type_1_count: usize,
+    public_keys_ptrs: *const *const *const u8,
+    public_keys_counts: *const usize,
+    epochs_ptr: *const u32,
+    messages_ptr: *const *const u8,
+) -> bool {
+    let type_2 = arg_type_2(
+        type_2_ptr,
+        type_2_size,
+        type_1_count,
+        public_keys_ptrs,
+        public_keys_counts,
+    );
+    let epochs = from_raw_parts(epochs_ptr, type_1_count);
+    let messages = many_from_bytes::<Message>(messages_ptr, type_1_count, MESSAGE_LENGTH).unwrap();
+    for ((epoch, message), info) in epochs.iter().zip(messages).zip(&type_2.info) {
+        if info.without_pubkeys.slot != *epoch || info.without_pubkeys.message != message {
+            return false;
+        }
+    }
+    lean_multisig::verify_type_2(&type_2).is_ok()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn pq_split_type_two(
+    type_2_ptr: *const u8,
+    type_2_size: usize,
+    type_1_count: usize,
+    public_keys_ptrs: *const *const *const u8,
+    public_keys_counts: *const usize,
+    index: usize,
+    log_inv_rate: usize,
+) -> PQByteVec {
+    let type_2 = arg_type_2(
+        type_2_ptr,
+        type_2_size,
+        type_1_count,
+        public_keys_ptrs,
+        public_keys_counts,
+    );
+    let type_1 = lean_multisig::split_type_2(type_2, index, log_inv_rate).unwrap();
+    PQByteVec::new(&type_1.compress_without_pubkeys())
 }
 
 #[cfg(test)]
