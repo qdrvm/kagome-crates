@@ -8,11 +8,11 @@ name = "c_hash_sig_crust"
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-backend = { git = "https://github.com/leanEthereum/leanVM.git", rev = "8fcbd77958a58666e828315de2d6ce7c93297117" }
+backend = { git = "https://github.com/leanEthereum/leanVM.git", rev = "e2592df4e30fdddbbf8ae26a333116c68cec7026" }
 cpp = { path = "../cpp" }
 leansig = { git = "https://github.com/leanEthereum/leanSig.git", branch = "devnet4" }
 rand = "0.10.0"
-lean-multisig = { git = "https://github.com/leanEthereum/leanVM.git", rev = "8fcbd77958a58666e828315de2d6ce7c93297117" }
+lean-multisig = { git = "https://github.com/leanEthereum/leanVM.git", rev = "e2592df4e30fdddbbf8ae26a333116c68cec7026" }
 serde_json = "1.0"
 ssz = { package = "ethereum_ssz", version = "0.10.0" }
 

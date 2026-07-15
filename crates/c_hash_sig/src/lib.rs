@@ -1,8 +1,8 @@
 use cpp::from_raw_parts;
 use cpp::from_raw_parts_mut;
 use cpp::Opaque;
-use lean_multisig::TypeOneMultiSignature;
-use lean_multisig::TypeTwoMultiSignature;
+use lean_multisig::MultiMessageAggregateSignature;
+use lean_multisig::SingleMessageAggregateSignature;
 use ssz::{Decode, Encode};
 use std::ops::Range;
 use std::os::raw::{c_char, c_int, c_uchar};
@@ -152,12 +152,12 @@ unsafe fn arg_type_2(
     type_1_count: usize,
     public_keys_ptrs: *const *const *const u8,
     public_keys_counts: *const usize,
-) -> TypeTwoMultiSignature {
+) -> MultiMessageAggregateSignature {
     let type_2 = from_raw_parts(type_2_ptr, type_2_size);
     let public_keys = arg_public_key_vec_vec(type_1_count, public_keys_ptrs, public_keys_counts);
     let type_2 = type_2.strip_prefix(&TYPE_2_PREFIX).expect("TYPE_2_PREFIX");
-    TypeTwoMultiSignature::decompress_without_pubkeys(&type_2, public_keys)
-        .expect("TypeTwoMultiSignature::decompress_without_pubkeys")
+    MultiMessageAggregateSignature::decompress_without_pubkeys(&type_2, public_keys)
+        .expect("MultiMessageAggregateSignature::decompress_without_pubkeys")
 }
 
 /// Encode value to json.
@@ -611,7 +611,7 @@ pub unsafe extern "C" fn pq_aggregate_signatures(
         .into_iter()
         .zip(children_public_keys)
         .map(|(child, public_keys)| {
-            TypeOneMultiSignature::decompress_without_pubkeys(
+            SingleMessageAggregateSignature::decompress_without_pubkeys(
                 from_raw_parts(child.proof_ptr, child.proof_size),
                 public_keys,
             )
@@ -628,7 +628,7 @@ pub unsafe extern "C" fn pq_aggregate_signatures(
         many_from_bytes::<XmssSignature>(signatures_bytes_ptr, signature_count, PQ_SIGNATURE_SIZE)
             .unwrap();
     let message = get_message(message);
-    let aggregated_signature = lean_multisig::aggregate_type_1(
+    let aggregated_signature = lean_multisig::aggregate_single_message_signatures(
         &children_proofs,
         public_keys
             .into_iter()
@@ -663,7 +663,7 @@ pub unsafe extern "C" fn pq_verify_aggregated_signatures(
     let message = get_message(message);
     let aggregated_signature_bytes =
         from_raw_parts(aggregated_signatures_ptr, aggregated_signatures_size);
-    let type_1 = match TypeOneMultiSignature::decompress_without_pubkeys(
+    let type_1 = match SingleMessageAggregateSignature::decompress_without_pubkeys(
         aggregated_signature_bytes,
         public_keys,
     ) {
@@ -673,7 +673,7 @@ pub unsafe extern "C" fn pq_verify_aggregated_signatures(
     if type_1.info.without_pubkeys.slot != epoch || type_1.info.without_pubkeys.message != message {
         return false;
     }
-    lean_multisig::verify_type_1(&type_1).is_ok()
+    lean_multisig::verify_single_message_aggregate(&type_1).is_ok()
 }
 
 const TYPE_2_PREFIX: [u8; 4] = 4u32.to_le_bytes();
@@ -694,10 +694,11 @@ pub unsafe extern "C" fn pq_aggregate_type_two(
         .map(|(ptr, size)| from_raw_parts(*ptr, *size))
         .zip(public_keys)
         .map(|(type_1, public_keys)| {
-            TypeOneMultiSignature::decompress_without_pubkeys(type_1, public_keys).unwrap()
+            SingleMessageAggregateSignature::decompress_without_pubkeys(type_1, public_keys)
+                .unwrap()
         })
         .collect();
-    let type_2 = lean_multisig::merge_many_type_1(types_1, log_inv_rate).unwrap();
+    let type_2 = lean_multisig::merge_single_message_aggregates(types_1, log_inv_rate).unwrap();
     let type_2_inner = type_2.compress_without_pubkeys();
     let mut type_2_outer = vec![];
     type_2_outer.extend_from_slice(&TYPE_2_PREFIX);
@@ -729,7 +730,7 @@ pub unsafe extern "C" fn pq_verify_type_two(
             return false;
         }
     }
-    lean_multisig::verify_type_2(&type_2).is_ok()
+    lean_multisig::verify_multi_message_aggregate(&type_2).is_ok()
 }
 
 #[no_mangle]
@@ -749,7 +750,7 @@ pub unsafe extern "C" fn pq_split_type_two(
         public_keys_ptrs,
         public_keys_counts,
     );
-    let type_1 = lean_multisig::split_type_2(type_2, index, log_inv_rate).unwrap();
+    let type_1 = lean_multisig::split_multi_message_aggregate(type_2, index, log_inv_rate).unwrap();
     PQByteVec::new(&type_1.compress_without_pubkeys())
 }
 
