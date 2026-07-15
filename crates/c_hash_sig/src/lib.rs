@@ -155,7 +155,6 @@ unsafe fn arg_type_2(
 ) -> MultiMessageAggregateSignature {
     let type_2 = from_raw_parts(type_2_ptr, type_2_size);
     let public_keys = arg_public_key_vec_vec(type_1_count, public_keys_ptrs, public_keys_counts);
-    let type_2 = type_2.strip_prefix(&TYPE_2_PREFIX).expect("TYPE_2_PREFIX");
     MultiMessageAggregateSignature::decompress_without_pubkeys(&type_2, public_keys)
         .expect("MultiMessageAggregateSignature::decompress_without_pubkeys")
 }
@@ -676,8 +675,6 @@ pub unsafe extern "C" fn pq_verify_aggregated_signatures(
     lean_multisig::verify_single_message_aggregate(&type_1).is_ok()
 }
 
-const TYPE_2_PREFIX: [u8; 4] = 4u32.to_le_bytes();
-
 #[no_mangle]
 pub unsafe extern "C" fn pq_aggregate_type_two(
     type_1_count: usize,
@@ -699,11 +696,7 @@ pub unsafe extern "C" fn pq_aggregate_type_two(
         })
         .collect();
     let type_2 = lean_multisig::merge_single_message_aggregates(types_1, log_inv_rate).unwrap();
-    let type_2_inner = type_2.compress_without_pubkeys();
-    let mut type_2_outer = vec![];
-    type_2_outer.extend_from_slice(&TYPE_2_PREFIX);
-    type_2_outer.extend_from_slice(&type_2_inner);
-    PQByteVec::new(&type_2_outer)
+    PQByteVec::new(&type_2.compress_without_pubkeys())
 }
 
 #[no_mangle]
