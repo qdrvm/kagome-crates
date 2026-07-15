@@ -152,11 +152,10 @@ unsafe fn arg_type_2(
     type_1_count: usize,
     public_keys_ptrs: *const *const *const u8,
     public_keys_counts: *const usize,
-) -> MultiMessageAggregateSignature {
+) -> Option<MultiMessageAggregateSignature> {
     let type_2 = from_raw_parts(type_2_ptr, type_2_size);
     let public_keys = arg_public_key_vec_vec(type_1_count, public_keys_ptrs, public_keys_counts);
     MultiMessageAggregateSignature::decompress_without_pubkeys(&type_2, public_keys)
-        .expect("MultiMessageAggregateSignature::decompress_without_pubkeys")
 }
 
 /// Encode value to json.
@@ -709,13 +708,15 @@ pub unsafe extern "C" fn pq_verify_type_two(
     epochs_ptr: *const u32,
     messages_ptr: *const *const u8,
 ) -> bool {
-    let type_2 = arg_type_2(
+    let Some(type_2) = arg_type_2(
         type_2_ptr,
         type_2_size,
         type_1_count,
         public_keys_ptrs,
         public_keys_counts,
-    );
+    ) else {
+        return false;
+    };
     let epochs = from_raw_parts(epochs_ptr, type_1_count);
     let messages = many_from_bytes::<Message>(messages_ptr, type_1_count, MESSAGE_LENGTH).unwrap();
     for ((epoch, message), info) in epochs.iter().zip(messages).zip(&type_2.info) {
@@ -742,7 +743,8 @@ pub unsafe extern "C" fn pq_split_type_two(
         type_1_count,
         public_keys_ptrs,
         public_keys_counts,
-    );
+    )
+    .expect("MultiMessageAggregateSignature::decompress_without_pubkeys");
     let type_1 = lean_multisig::split_multi_message_aggregate(type_2, index, log_inv_rate).unwrap();
     PQByteVec::new(&type_1.compress_without_pubkeys())
 }
